@@ -26,7 +26,7 @@ with open("README.rst", "r") as readme:
 
 setup(
     name='futurist',
-    description='Useful additions to futures, from the future.'
+    description='Useful additions to futures, from the future.',
     author="Joshua Harlow",
     author_email='harlowja@yahoo-inc.com',
     url='https://github.com/harlowja/futurist',
