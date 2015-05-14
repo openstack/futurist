@@ -33,7 +33,7 @@ setup(
     license="ASL 2.0",
     install_requires=[
         # Only needed on 2.6 and 2.7 (can be killed/removed on 3.2+)
-        'futures',
+        'futures>=3.0',
         'six',
         'oslo.utils',
     ],
