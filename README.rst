@@ -1,5 +1,5 @@
 ========
-futurist
+Futurist
 ========
 
 Code from the future, delivered to you in the **now**.
@@ -12,4 +12,16 @@ Code from the future, delivered to you in the **now**.
 Features
 --------
 
-* TODO
+* A ``futurist.GreenThreadPoolExecutor`` using `eventlet`_ green thread
+  pools. It provides a standard `executor`_ API/interface and it also gathers
+  execution statistics.
+* A ``futurist.ProcessPoolExecutor`` derivative that gathers execution
+  statistics.
+* A ``futurist.SynchronousExecutor`` that **doesn't** run concurrently. It
+  has the same `executor`_ API/interface and it also gathers execution
+  statistics.
+* A ``futurist.ThreadPoolExecutor`` derivative that gathers execution
+  statistics.
+
+.. _eventlet: http://eventlet.net/
+.. _executor: https://docs.python.org/dev/library/concurrent.futures.html#executor-objects
