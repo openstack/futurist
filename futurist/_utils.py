@@ -16,12 +16,17 @@
 
 import multiprocessing
 
-from oslo_utils import importutils
+try:
+    from time import monotonic as now  # noqa
+except ImportError:
+    from time import time as now  # noqa
 
-_eventlet = importutils.try_import('eventlet')
 
-
-EVENTLET_AVAILABLE = bool(_eventlet)
+try:
+    import eventlet as _eventlet  # noqa
+    EVENTLET_AVAILABLE = True
+except ImportError:
+    EVENTLET_AVAILABLE = False
 
 
 def get_optimal_thread_count(default=2):
