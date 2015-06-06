@@ -205,10 +205,27 @@ class SynchronousExecutor(_futures.Executor):
     It gathers statistics about the submissions executed for post-analysis...
     """
 
-    def __init__(self):
+    def __init__(self, green=False):
+        """Synchronous executor constructor.
+
+        :param green: when enabled this forces the usage of greened lock
+                      classes and green futures (so that the internals of this
+                      object operate correctly under eventlet)
+        :type green: bool
+        """
+        if green and not _utils.EVENTLET_AVAILABLE:
+            raise RuntimeError('Eventlet is needed to use a green'
+                               ' synchronous executor')
         self._shutoff = False
+        if green:
+            lock_cls = greenthreading.Lock
+            self._future_cls = GreenFuture
+        else:
+            lock_cls = threading.Lock
+            self._future_cls = Future
         self._gatherer = _Gatherer(self._submit,
-                                   start_before_submit=True)
+                                   start_before_submit=True,
+                                   lock_cls=lock_cls)
 
     @property
     def alive(self):
@@ -240,10 +257,10 @@ class SynchronousExecutor(_futures.Executor):
         return self._gatherer.submit(fn, *args, **kwargs)
 
     def _submit(self, fn, *args, **kwargs):
-        f = Future()
-        runner = _WorkItem(f, fn, args, kwargs)
+        fut = self._future_cls()
+        runner = _WorkItem(fut, fn, args, kwargs)
         runner.run()
-        return f
+        return fut
 
 
 class _GreenWorker(object):

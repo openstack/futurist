@@ -40,18 +40,21 @@ def delayed(wait_secs):
 class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
     scenarios = [
         ('sync', {'executor_cls': futurist.SynchronousExecutor,
-                  'restartable': True}),
+                  'restartable': True, 'executor_kwargs': {}}),
+        ('green_sync', {'executor_cls': futurist.SynchronousExecutor,
+                        'restartable': True,
+                        'executor_kwargs': {'green': True}}),
         ('green', {'executor_cls': futurist.GreenThreadPoolExecutor,
-                   'restartable': False}),
+                   'restartable': False, 'executor_kwargs': {}}),
         ('thread', {'executor_cls': futurist.ThreadPoolExecutor,
-                    'restartable': False}),
+                    'restartable': False, 'executor_kwargs': {}}),
         ('process', {'executor_cls': futurist.ProcessPoolExecutor,
-                     'restartable': False}),
+                     'restartable': False, 'executor_kwargs': {}}),
     ]
 
     def setUp(self):
         super(TestExecutors, self).setUp()
-        self.executor = self.executor_cls()
+        self.executor = self.executor_cls(**self.executor_kwargs)
 
     def tearDown(self):
         super(TestExecutors, self).tearDown()
@@ -79,7 +82,7 @@ class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
         self.assertGreaterEqual(self.executor.statistics.runtime, 0.2)
 
     def test_post_shutdown_raises(self):
-        executor = self.executor_cls()
+        executor = self.executor_cls(**self.executor_kwargs)
         executor.shutdown()
         self.assertRaises(RuntimeError, executor.submit, returns_one)
 
@@ -87,7 +90,7 @@ class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
         if not self.restartable:
             raise testcase.TestSkipped("not restartable")
         else:
-            executor = self.executor_cls()
+            executor = self.executor_cls(**self.executor_kwargs)
             fut = executor.submit(returns_one)
             self.assertEqual(1, fut.result())
             executor.shutdown()
@@ -103,7 +106,7 @@ class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
             executor.shutdown()
 
     def test_alive(self):
-        with self.executor_cls() as executor:
+        with self.executor_cls(**self.executor_kwargs) as executor:
             self.assertTrue(executor.alive)
         self.assertFalse(executor.alive)
 

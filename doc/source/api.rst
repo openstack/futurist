@@ -14,6 +14,7 @@ Executors
 
 .. autoclass:: futurist.SynchronousExecutor
     :members:
+    :special-members: __init__
 
 .. autoclass:: futurist.ThreadPoolExecutor
     :members:
