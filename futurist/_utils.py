@@ -34,6 +34,14 @@ except ImportError:
     EVENTLET_AVAILABLE = False
 
 
+def reverse_enumerate(items):
+    """Yields (index, item) from given list/tuple in reverse order."""
+    idx = len(items)
+    while idx > 0:
+        yield (idx - 1, items[idx - 1])
+        idx -= 1
+
+
 def get_optimal_thread_count(default=2):
     """Try to guess optimal thread count for current system."""
     try:
