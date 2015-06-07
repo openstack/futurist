@@ -273,6 +273,8 @@ class _GreenWorker(object):
 
 
 class GreenFuture(Future):
+    __doc__ = Future.__doc__
+
     def __init__(self):
         super(GreenFuture, self).__init__()
         if not _utils.EVENTLET_AVAILABLE:

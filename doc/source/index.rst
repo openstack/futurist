@@ -1,19 +1,14 @@
-.. futurist documentation master file, created by
-   sphinx-quickstart on Tue Jul  9 22:26:36 2013.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
 Welcome to futurist's documentation!
 ========================================================
 
-Contents:
+Code from the future, delivered to you in the **now**.
 
 .. toctree::
    :maxdepth: 2
 
-   readme
+   features
+   api
    installation
-   usage
    contributing
 
 Indices and tables
