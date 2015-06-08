@@ -16,6 +16,8 @@ import contextlib
 import threading
 import time
 
+import eventlet
+from eventlet.green import threading as green_threading
 import testscenarios
 
 import futurist
@@ -44,10 +46,33 @@ def create_destroy_thread(run_what, *args, **kwargs):
         t.join()
 
 
+@contextlib.contextmanager
+def create_destroy_green_thread(run_what, *args, **kwargs):
+    t = eventlet.spawn(run_what, *args, **kwargs)
+    try:
+        yield
+    finally:
+        t.wait()
+
+
 class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
     scenarios = [
-        ('sync', {'executor_cls': futurist.SynchronousExecutor}),
-        ('thread', {'executor_cls': futurist.ThreadPoolExecutor}),
+        ('sync', {'executor_cls': futurist.SynchronousExecutor,
+                  'executor_kwargs': {},
+                  'create_destroy': create_destroy_thread,
+                  'sleep': time.sleep,
+                  'worker_kwargs': {}}),
+        ('thread', {'executor_cls': futurist.ThreadPoolExecutor,
+                    'executor_kwargs': {'max_workers': 2},
+                    'create_destroy': create_destroy_thread,
+                    'sleep': time.sleep,
+                    'worker_kwargs': {}}),
+        ('green', {'executor_cls': futurist.GreenThreadPoolExecutor,
+                   'executor_kwargs': {'max_workers': 10},
+                   'sleep': eventlet.sleep,
+                   'create_destroy': create_destroy_green_thread,
+                   'worker_kwargs': {'cond_cls': green_threading.Condition,
+                                     'event_cls': green_threading.Event}}),
     ]
 
     def test_worker(self):
@@ -60,11 +85,12 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
             (every_one_sec, (cb,), None),
             (every_half_sec, (cb,), None),
         ]
-        executor_factory = lambda: self.executor_cls()
+        executor_factory = lambda: self.executor_cls(**self.executor_kwargs)
         w = periodics.PeriodicWorker(callables,
-                                     executor_factory=executor_factory)
-        with create_destroy_thread(w.start):
-            time.sleep(2.0)
+                                     executor_factory=executor_factory,
+                                     **self.worker_kwargs)
+        with self.create_destroy(w.start):
+            self.sleep(2.0)
             w.stop()
 
         am_called = sum(called)

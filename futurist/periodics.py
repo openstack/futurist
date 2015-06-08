@@ -136,7 +136,8 @@ class PeriodicWorker(object):
 
     @classmethod
     def create(cls, objects, exclude_hidden=True,
-               log=None, executor_factory=None):
+               log=None, executor_factory=None,
+               cond_cls=threading.Condition, event_cls=threading.Event):
         """Automatically creates a worker by analyzing object(s) methods.
 
         Only picks up methods that have been tagged/decorated with
@@ -152,13 +153,20 @@ class PeriodicWorker(object):
                     to the module logger if none provided), it is currently
                     only used to report callback failures (if they occur)
         :type log: logger
-        :param executor_factory: factory method that can be used to generate
+        :param executor_factory: factory callable that can be used to generate
                                  executor objects that will be used to
                                  run the periodic callables (if none is
                                  provided one will be created that uses
                                  the :py:class:`~futurist.SynchronousExecutor`
                                  class)
         :type executor_factory: callable
+        :param cond_cls: callable object that can
+                          produce ``threading.Condition``
+                          (or compatible/equivalent) objects
+        :type cond_cls: callable
+        :param event_cls: callable object that can produce ``threading.Event``
+                          (or compatible/equivalent) objects
+        :type event_cls: callable
         """
         callables = []
         for obj in objects:
@@ -172,9 +180,11 @@ class PeriodicWorker(object):
                         callables.append((member,
                                           cls._NO_OP_ARGS,
                                           cls._NO_OP_KWARGS))
-        return cls(callables, log=log, executor_factory=executor_factory)
+        return cls(callables, log=log, executor_factory=executor_factory,
+                   cond_cls=cond_cls, event_cls=event_cls)
 
-    def __init__(self, callables, log=None, executor_factory=None):
+    def __init__(self, callables, log=None, executor_factory=None,
+                 cond_cls=threading.Condition, event_cls=threading.Event):
         """Creates a new worker using the given periodic callables.
 
         :param callables: a iterable of tuple objects previously decorated
@@ -191,17 +201,24 @@ class PeriodicWorker(object):
                     to the module logger if none provided), it is currently
                     only used to report callback failures (if they occur)
         :type log: logger
-        :param executor_factory: factory method that can be used to generate
+        :param executor_factory: factory callable that can be used to generate
                                  executor objects that will be used to
                                  run the periodic callables (if none is
                                  provided one will be created that uses
                                  the :py:class:`~futurist.SynchronousExecutor`
                                  class)
         :type executor_factory: callable
+        :param cond_cls: callable object that can
+                          produce ``threading.Condition``
+                          (or compatible/equivalent) objects
+        :type cond_cls: callable
+        :param event_cls: callable object that can produce ``threading.Event``
+                          (or compatible/equivalent) objects
+        :type event_cls: callable
         """
-        self._tombstone = threading.Event()
-        self._waiter = threading.Condition()
-        self._dead = threading.Event()
+        self._tombstone = event_cls()
+        self._waiter = cond_cls()
+        self._dead = event_cls()
         self._callables = []
         for (cb, args, kwargs) in callables:
             if not six.callable(cb):
