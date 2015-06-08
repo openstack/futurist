@@ -16,6 +16,9 @@ import contextlib
 import threading
 import time
 
+import testscenarios
+
+import futurist
 from futurist import periodics
 from futurist.tests import base
 
@@ -41,7 +44,12 @@ def create_destroy_thread(run_what, *args, **kwargs):
         t.join()
 
 
-class TestPeriodics(base.TestCase):
+class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
+    scenarios = [
+        ('sync', {'executor_cls': futurist.SynchronousExecutor}),
+        ('thread', {'executor_cls': futurist.ThreadPoolExecutor}),
+    ]
+
     def test_worker(self):
         called = []
 
@@ -52,7 +60,9 @@ class TestPeriodics(base.TestCase):
             (every_one_sec, (cb,), None),
             (every_half_sec, (cb,), None),
         ]
-        w = periodics.PeriodicWorker(callables)
+        executor_factory = lambda: self.executor_cls()
+        w = periodics.PeriodicWorker(callables,
+                                     executor_factory=executor_factory)
         with create_destroy_thread(w.start):
             time.sleep(2.0)
             w.stop()
