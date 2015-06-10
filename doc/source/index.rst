@@ -9,6 +9,7 @@ Code from the future, delivered to you in the **now**.
    features
    api
    installation
+   examples
    contributing
 
 Indices and tables
