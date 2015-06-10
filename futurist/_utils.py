@@ -15,17 +15,8 @@
 #    under the License.
 
 import multiprocessing
-import time
 
-try:
-    now = time.monotonic  # noqa
-except AttributeError:
-    try:
-        # Try to use the pypi module if it's available (optionally...)
-        from monotonic import monotonic as now  # noqa
-    except (AttributeError, ImportError):
-        # Ok fallback to the non-monotonic one...
-        now = time.time  # noqa
+from monotonic import monotonic as now  # noqa
 
 try:
     import eventlet as _eventlet  # noqa
