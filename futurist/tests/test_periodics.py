@@ -55,6 +55,13 @@ def create_destroy_green_thread(run_what, *args, **kwargs):
         t.wait()
 
 
+class TestPeriodicsStrategies(base.TestCase):
+    def test_invalids(self):
+        self.assertRaises(ValueError,
+                          periodics.PeriodicWorker, [],
+                          schedule_strategy='not_a_strategy')
+
+
 class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
     scenarios = [
         ('sync', {'executor_cls': futurist.SynchronousExecutor,
