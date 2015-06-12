@@ -29,6 +29,16 @@ Futures
 .. autoclass:: futurist.GreenFuture
     :members:
 
+---------
+Periodics
+---------
+
+.. autoclass:: futurist.periodics.PeriodicWorker
+    :members:
+    :special-members: __init__
+
+.. autofunction:: futurist.periodics.periodic
+
 -------------
 Miscellaneous
 -------------
