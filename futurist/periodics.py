@@ -14,6 +14,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import functools
 import heapq
 import inspect
 import logging
@@ -21,6 +22,7 @@ import threading
 
 import six
 
+import futurist
 from futurist import _utils
 
 LOG = logging.getLogger(__name__)
@@ -117,15 +119,6 @@ def _build(callables):
     return immediates, schedule
 
 
-def _safe_call(cb, args, kwargs, kind, log):
-    try:
-        cb(*args, **kwargs)
-    except Exception:
-        how_often = cb._periodic_spacing
-        log.exception("Failed to call %s '%r' (it runs every %0.2f"
-                      " seconds)", kind, cb, how_often)
-
-
 class PeriodicWorker(object):
     """Calls a collection of callables periodically (sleeping as needed...).
 
@@ -135,11 +128,15 @@ class PeriodicWorker(object):
     when each is called).
     """
 
+    #: Max amount of time to wait when running (forces a wakeup when elapsed).
+    MAX_LOOP_IDLE = 30
+
     _NO_OP_ARGS = ()
     _NO_OP_KWARGS = {}
 
     @classmethod
-    def create(cls, objects, exclude_hidden=True, log=None):
+    def create(cls, objects, exclude_hidden=True,
+               log=None, executor_factory=None):
         """Automatically creates a worker by analyzing object(s) methods.
 
         Only picks up methods that have been tagged/decorated with
@@ -155,6 +152,13 @@ class PeriodicWorker(object):
                     to the module logger if none provided), it is currently
                     only used to report callback failures (if they occur)
         :type log: logger
+        :param executor_factory: factory method that can be used to generate
+                                 executor objects that will be used to
+                                 run the periodic callables (if none is
+                                 provided one will be created that uses
+                                 the :py:class:`~futurist.SynchronousExecutor`
+                                 class)
+        :type executor_factory: callable
         """
         callables = []
         for obj in objects:
@@ -168,9 +172,9 @@ class PeriodicWorker(object):
                         callables.append((member,
                                           cls._NO_OP_ARGS,
                                           cls._NO_OP_KWARGS))
-        return cls(callables, log=log)
+        return cls(callables, log=log, executor_factory=executor_factory)
 
-    def __init__(self, callables, log=None):
+    def __init__(self, callables, log=None, executor_factory=None):
         """Creates a new worker using the given periodic callables.
 
         :param callables: a iterable of tuple objects previously decorated
@@ -187,9 +191,17 @@ class PeriodicWorker(object):
                     to the module logger if none provided), it is currently
                     only used to report callback failures (if they occur)
         :type log: logger
+        :param executor_factory: factory method that can be used to generate
+                                 executor objects that will be used to
+                                 run the periodic callables (if none is
+                                 provided one will be created that uses
+                                 the :py:class:`~futurist.SynchronousExecutor`
+                                 class)
+        :type executor_factory: callable
         """
-
         self._tombstone = threading.Event()
+        self._waiter = threading.Condition()
+        self._dead = threading.Event()
         self._callables = []
         for (cb, args, kwargs) in callables:
             if not six.callable(cb):
@@ -208,9 +220,80 @@ class PeriodicWorker(object):
                 self._callables.append((cb, args, kwargs))
         self._immediates, self._schedule = _build(self._callables)
         self._log = log or LOG
+        if executor_factory is None:
+            executor_factory = lambda: futurist.SynchronousExecutor()
+        self._executor_factory = executor_factory
 
     def __len__(self):
         return len(self._callables)
+
+    def _run(self, executor):
+        """Main worker run loop."""
+
+        def _on_done(kind, cb, index, fut, now=None):
+            try:
+                # NOTE(harlowja): accessing the result will cause it to
+                # raise (so that we can log if it had/has failed).
+                _r = fut.result()  # noqa
+            except Exception:
+                how_often = cb._periodic_spacing
+                self._log.exception("Failed to call %s '%r' (it runs every"
+                                    " %0.2f seconds)", kind, cb, how_often)
+            finally:
+                with self._waiter:
+                    self._schedule.push_next(cb, index, now=now)
+                    self._waiter.notify_all()
+
+        while not self._tombstone.is_set():
+            if self._immediates:
+                # Run & schedule its next execution.
+                try:
+                    index = self._immediates.pop()
+                except IndexError:
+                    pass
+                else:
+                    cb, args, kwargs = self._callables[index]
+                    now = _utils.now()
+                    fut = executor.submit(cb, *args, **kwargs)
+                    # Note that we are providing the time that it started
+                    # at, so this implies that the rescheduling time will
+                    # *not* take into account how long it took to actually
+                    # run the callback... (for better or worse).
+                    fut.add_done_callback(functools.partial(_on_done,
+                                                            'immediate',
+                                                            cb, index,
+                                                            now=now))
+            else:
+                # Figure out when we should run next (by selecting the
+                # minimum item from the heap, where the minimum should be
+                # the callable that needs to run next and has the lowest
+                # next desired run time).
+                with self._waiter:
+                    while (not self._schedule and
+                           not self._tombstone.is_set()):
+                        self._waiter.wait(self.MAX_LOOP_IDLE)
+                    if self._tombstone.is_set():
+                        break
+                    now = _utils.now()
+                    next_run, index = self._schedule.pop()
+                    when_next = next_run - now
+                    if when_next <= 0:
+                        # Run & schedule its next execution.
+                        cb, args, kwargs = self._callables[index]
+                        fut = executor.submit(cb, *args, **kwargs)
+                        # Note that we are providing the time that it started
+                        # at, so this implies that the rescheduling time will
+                        # *not* take into account how long it took to actually
+                        # run the callback... (for better or worse).
+                        fut.add_done_callback(functools.partial(_on_done,
+                                                                'periodic',
+                                                                cb, index,
+                                                                now=now))
+                    else:
+                        # Gotta wait...
+                        self._schedule.push(next_run, index)
+                        when_next = min(when_next, self.MAX_LOOP_IDLE)
+                        self._waiter.wait(when_next)
 
     def start(self):
         """Starts running (will not return until :py:meth:`.stop` is called).
@@ -222,36 +305,39 @@ class PeriodicWorker(object):
         if not self._callables:
             raise RuntimeError("A periodic worker can not start"
                                " without any callables")
-        while not self._tombstone.is_set():
-            if self._immediates:
-                # Run & schedule its next execution.
-                index = self._immediates.pop()
-                cb, args, kwargs = self._callables[index]
-                _safe_call(cb, args, kwargs, 'immediate', self._log)
-                self._schedule.push_next(cb, index)
-            else:
-                # Figure out when we should run next (by selecting the
-                # minimum item from the heap, where the minimum should be
-                # the callable that needs to run next and has the lowest
-                # next desired run time).
-                now = _utils.now()
-                next_run, index = self._schedule.pop()
-                when_next = next_run - now
-                if when_next <= 0:
-                    # Run & schedule its next execution.
-                    cb, args, kwargs = self._callables[index]
-                    _safe_call(cb, args, kwargs, 'periodic', self._log)
-                    self._schedule.push_next(cb, index, now=now)
-                else:
-                    # Gotta wait...
-                    self._schedule.push(next_run, index)
-                    self._tombstone.wait(when_next)
+        executor = self._executor_factory()
+        self._dead.clear()
+        try:
+            self._run(executor)
+        finally:
+            executor.shutdown()
+            self._dead.set()
+            if hasattr(executor, 'statistics'):
+                self._log.debug("Stopped running periodically: %s",
+                                executor.statistics)
 
     def stop(self):
         """Sets the tombstone (this stops any further executions)."""
-        self._tombstone.set()
+        with self._waiter:
+            self._tombstone.set()
+            self._waiter.notify_all()
 
     def reset(self):
-        """Resets the tombstone and re-queues up any immediate executions."""
+        """Resets the workers internal state."""
         self._tombstone.clear()
+        self._dead.clear()
         self._immediates, self._schedule = _build(self._callables)
+
+    def wait(self, timeout=None):
+        """Waits for the :py:func:`.start` method to gracefully exit.
+
+        An optional timeout can be provided, which will cause the method to
+        return within the specified timeout. If the timeout is reached, the
+        returned value will be False.
+
+        :param timeout: Maximum number of seconds that the :meth:`.wait`
+                        method should block for
+        :type timeout: float/int
+        """
+        self._dead.wait(timeout)
+        return self._dead.is_set()
