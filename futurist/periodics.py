@@ -14,11 +14,16 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import fractions
 import functools
 import heapq
 import inspect
 import logging
 import threading
+import traceback
+
+# For: https://wiki.openstack.org/wiki/Security/Projects/Bandit
+from random import SystemRandom as random
 
 import six
 
@@ -72,6 +77,50 @@ def periodic(spacing, run_immediately=False):
     return wrapper
 
 
+def _add_jitter(max_percent_jitter):
+    """Wraps a existing strategy and adds jitter to it.
+
+    0% to 100% of the spacing value will be added to this value to ensure
+    callbacks do not synchronize.
+    """
+    if max_percent_jitter > 1 or max_percent_jitter < 0:
+        raise ValueError("Invalid 'max_percent_jitter', must be greater or"
+                         " equal to 0.0 and less than or equal to 1.0")
+
+    def wrapper(func):
+
+        @six.wraps(func)
+        def decorator(cb, metrics, now=None):
+            next_run = func(cb, metrics, now=now)
+            how_often = cb._periodic_spacing
+            jitter = how_often * (random.random() * max_percent_jitter)
+            return next_run + jitter
+
+        decorator.__name__ += "_with_jitter"
+        return decorator
+
+    return wrapper
+
+
+def _last_finished_strategy(cb, started_at, finished_at, metrics):
+    # Determine when the callback should next run based on when it was
+    # last finished **only** given metrics about this information.
+    how_often = cb._periodic_spacing
+    return finished_at + how_often
+
+
+def _last_started_strategy(cb, started_at, finished_at, metrics):
+    # Determine when the callback should next run based on when it was
+    # last started **only** given metrics about this information.
+    how_often = cb._periodic_spacing
+    return started_at + how_often
+
+
+def _now_plus_periodicity(cb, now):
+    how_often = cb._periodic_spacing
+    return how_often + now
+
+
 class _Schedule(object):
     """Internal heap-based structure that maintains the schedule/ordering.
 
@@ -89,12 +138,6 @@ class _Schedule(object):
     def push(self, next_run, index):
         heapq.heappush(self._ordering, (next_run, index))
 
-    def push_next(self, cb, index, now=None):
-        if now is None:
-            now = _utils.now()
-        next_run = now + cb._periodic_spacing
-        self.push(next_run, index)
-
     def __len__(self):
         return len(self._ordering)
 
@@ -102,20 +145,38 @@ class _Schedule(object):
         return heapq.heappop(self._ordering)
 
 
-def _build(callables):
+def _run_callback(cb, *args, **kwargs):
+    # NOTE(harlowja): this needs to be a module level function so that the
+    # process pool execution can locate it (it can't be a lambda or method
+    # local function because it won't be able to find those).
+    started_at = _utils.now()
+    pretty_tb = None
+    try:
+        cb(*args, **kwargs)
+    except Exception:
+        # Until https://bugs.python.org/issue24451 is merged we have to
+        # capture and return the traceback, so that we can have reliable
+        # timing information.
+        pretty_tb = traceback.format_exc()
+    finished_at = _utils.now()
+    return (started_at, finished_at, pretty_tb)
+
+
+def _build(callables, next_run_scheduler):
     schedule = _Schedule()
     now = None
     immediates = []
     # Reverse order is used since these are later popped off (and to
     # ensure the popping order is first -> last we need to append them
     # in the opposite ordering last -> first).
-    for i, (cb, args, kwargs) in _utils.reverse_enumerate(callables):
+    for index, (cb, args, kwargs) in _utils.reverse_enumerate(callables):
         if cb._periodic_run_immediately:
-            immediates.append(i)
+            immediates.append(index)
         else:
             if now is None:
                 now = _utils.now()
-            schedule.push_next(cb, i, now=now)
+            next_run = next_run_scheduler(cb, now)
+            schedule.push(next_run, index)
     return immediates, schedule
 
 
@@ -134,10 +195,47 @@ class PeriodicWorker(object):
     _NO_OP_ARGS = ()
     _NO_OP_KWARGS = {}
 
+    DEFAULT_JITTER = fractions.Fraction(5, 100)
+    """
+    Default jitter percentage the built-in strategies (that have jitter
+    support) will use.
+    """
+
+    BUILT_IN_STRATEGIES = {
+        'last_started': (
+            _last_started_strategy,
+            _now_plus_periodicity,
+        ),
+        'last_started_jitter': (
+            _add_jitter(DEFAULT_JITTER)(_last_started_strategy),
+            _now_plus_periodicity,
+        ),
+        'last_finished': (
+            _last_finished_strategy,
+            _now_plus_periodicity,
+        ),
+        'last_finished_jitter': (
+            _add_jitter(DEFAULT_JITTER)(_last_finished_strategy),
+            _now_plus_periodicity,
+        ),
+    }
+    """
+    Built in scheduling strategies (used to determine when next to run
+    a periodic callable).
+
+    The first element is the strategy to use after the initial start
+    and the second element is the strategy to use for the initial start.
+
+    These are made somewhat pluggable so that we can *easily* add-on
+    different types later (perhaps one that uses a cron-style syntax
+    for example).
+    """
+
     @classmethod
     def create(cls, objects, exclude_hidden=True,
                log=None, executor_factory=None,
-               cond_cls=threading.Condition, event_cls=threading.Event):
+               cond_cls=threading.Condition, event_cls=threading.Event,
+               schedule_strategy='last_started'):
         """Automatically creates a worker by analyzing object(s) methods.
 
         Only picks up methods that have been tagged/decorated with
@@ -167,6 +265,10 @@ class PeriodicWorker(object):
         :param event_cls: callable object that can produce ``threading.Event``
                           (or compatible/equivalent) objects
         :type event_cls: callable
+        :param schedule_strategy: string to select one of the built-in
+                                  strategies that can return the
+                                  next time a callable should run
+        :type schedule_strategy: string
         """
         callables = []
         for obj in objects:
@@ -181,10 +283,12 @@ class PeriodicWorker(object):
                                           cls._NO_OP_ARGS,
                                           cls._NO_OP_KWARGS))
         return cls(callables, log=log, executor_factory=executor_factory,
-                   cond_cls=cond_cls, event_cls=event_cls)
+                   cond_cls=cond_cls, event_cls=event_cls,
+                   schedule_strategy=schedule_strategy)
 
     def __init__(self, callables, log=None, executor_factory=None,
-                 cond_cls=threading.Condition, event_cls=threading.Event):
+                 cond_cls=threading.Condition, event_cls=threading.Event,
+                 schedule_strategy='last_started'):
         """Creates a new worker using the given periodic callables.
 
         :param callables: a iterable of tuple objects previously decorated
@@ -215,10 +319,15 @@ class PeriodicWorker(object):
         :param event_cls: callable object that can produce ``threading.Event``
                           (or compatible/equivalent) objects
         :type event_cls: callable
+        :param schedule_strategy: string to select one of the built-in
+                                  strategies that can return the
+                                  next time a callable should run
+        :type schedule_strategy: string
         """
         self._tombstone = event_cls()
         self._waiter = cond_cls()
         self._dead = event_cls()
+        self._metrics = []
         self._callables = []
         for (cb, args, kwargs) in callables:
             if not six.callable(cb):
@@ -235,7 +344,24 @@ class PeriodicWorker(object):
                 if kwargs is None:
                     kwargs = self._NO_OP_KWARGS
                 self._callables.append((cb, args, kwargs))
-        self._immediates, self._schedule = _build(self._callables)
+                self._metrics.append({
+                    'runs': 0,
+                    'elapsed': 0,
+                    'elapsed_waiting': 0,
+                    'failures': 0,
+                    'successes': 0,
+                })
+        try:
+            strategy = self.BUILT_IN_STRATEGIES[schedule_strategy]
+            self._schedule_strategy = strategy[0]
+            self._initial_schedule_strategy = strategy[1]
+        except KeyError:
+            valid_strategies = sorted(self.BUILT_IN_STRATEGIES.keys())
+            raise ValueError("Scheduling strategy '%s' must be one of"
+                             " %s selectable strategies"
+                             % (schedule_strategy, valid_strategies))
+        self._immediates, self._schedule = _build(
+            self._callables, self._initial_schedule_strategy)
         self._log = log or LOG
         if executor_factory is None:
             executor_factory = lambda: futurist.SynchronousExecutor()
@@ -247,19 +373,28 @@ class PeriodicWorker(object):
     def _run(self, executor):
         """Main worker run loop."""
 
-        def _on_done(kind, cb, index, fut, now=None):
-            try:
-                # NOTE(harlowja): accessing the result will cause it to
-                # raise (so that we can log if it had/has failed).
-                _r = fut.result()  # noqa
-            except Exception:
+        def _on_done(kind, cb, index, submitted_at, fut):
+            started_at, finished_at, pretty_tb = fut.result()
+            metrics = self._metrics[index]
+            metrics['runs'] += 1
+            if pretty_tb is not None:
                 how_often = cb._periodic_spacing
-                self._log.exception("Failed to call %s '%r' (it runs every"
-                                    " %0.2f seconds)", kind, cb, how_often)
-            finally:
-                with self._waiter:
-                    self._schedule.push_next(cb, index, now=now)
-                    self._waiter.notify_all()
+                self._log.error("Failed to call %s %r (it runs every"
+                                " %0.2f seconds):\n%s", kind, cb,
+                                how_often, pretty_tb)
+                metrics['failures'] += 1
+            else:
+                metrics['successes'] += 1
+            elapsed = max(0, finished_at - started_at)
+            elapsed_waiting = max(0, started_at - submitted_at)
+            metrics['elapsed'] += elapsed
+            metrics['elapsed_waiting'] += elapsed_waiting
+            next_run = self._schedule_strategy(cb,
+                                               started_at, finished_at,
+                                               metrics)
+            with self._waiter:
+                self._schedule.push(next_run, index)
+                self._waiter.notify_all()
 
         while not self._tombstone.is_set():
             if self._immediates:
@@ -270,16 +405,13 @@ class PeriodicWorker(object):
                     pass
                 else:
                     cb, args, kwargs = self._callables[index]
-                    now = _utils.now()
-                    fut = executor.submit(cb, *args, **kwargs)
-                    # Note that we are providing the time that it started
-                    # at, so this implies that the rescheduling time will
-                    # *not* take into account how long it took to actually
-                    # run the callback... (for better or worse).
+                    submitted_at = _utils.now()
+                    fut = executor.submit(_run_callback,
+                                          cb, *args, **kwargs)
                     fut.add_done_callback(functools.partial(_on_done,
                                                             'immediate',
                                                             cb, index,
-                                                            now=now))
+                                                            submitted_at))
             else:
                 # Figure out when we should run next (by selecting the
                 # minimum item from the heap, where the minimum should be
@@ -291,26 +423,43 @@ class PeriodicWorker(object):
                         self._waiter.wait(self.MAX_LOOP_IDLE)
                     if self._tombstone.is_set():
                         break
-                    now = _utils.now()
+                    submitted_at = now = _utils.now()
                     next_run, index = self._schedule.pop()
                     when_next = next_run - now
                     if when_next <= 0:
                         # Run & schedule its next execution.
                         cb, args, kwargs = self._callables[index]
-                        fut = executor.submit(cb, *args, **kwargs)
-                        # Note that we are providing the time that it started
-                        # at, so this implies that the rescheduling time will
-                        # *not* take into account how long it took to actually
-                        # run the callback... (for better or worse).
+                        fut = executor.submit(_run_callback,
+                                              cb, *args, **kwargs)
                         fut.add_done_callback(functools.partial(_on_done,
                                                                 'periodic',
                                                                 cb, index,
-                                                                now=now))
+                                                                submitted_at))
                     else:
                         # Gotta wait...
                         self._schedule.push(next_run, index)
                         when_next = min(when_next, self.MAX_LOOP_IDLE)
                         self._waiter.wait(when_next)
+
+    def _on_finish(self):
+        # TODO(harlowja): this may be to verbose for people?
+        if not self._log.isEnabledFor(logging.DEBUG):
+            return
+        for index, metrics in enumerate(self._metrics):
+            cb, _args, _kwargs = self._callables[index]
+            runs = metrics['runs']
+            self._log.debug("Stopped running callback[%s] %r periodically:",
+                            index, cb)
+            self._log.debug("  Periodicity = %ss", cb._periodic_spacing)
+            self._log.debug("  Runs = %s", runs)
+            self._log.debug("  Failures = %s", metrics['failures'])
+            self._log.debug("  Successes = %s", metrics['successes'])
+            if runs > 0:
+                avg_elapsed = metrics['elapsed'] / runs
+                avg_elapsed_waiting = metrics['elapsed_waiting'] / runs
+                self._log.debug("  Average elapsed = %0.4fs", avg_elapsed)
+                self._log.debug("  Average elapsed waiting = %0.4fs",
+                                avg_elapsed_waiting)
 
     def start(self):
         """Starts running (will not return until :py:meth:`.stop` is called).
@@ -329,9 +478,7 @@ class PeriodicWorker(object):
         finally:
             executor.shutdown()
             self._dead.set()
-            if hasattr(executor, 'statistics'):
-                self._log.debug("Stopped running periodically: %s",
-                                executor.statistics)
+            self._on_finish()
 
     def stop(self):
         """Sets the tombstone (this stops any further executions)."""
@@ -343,10 +490,14 @@ class PeriodicWorker(object):
         """Resets the workers internal state."""
         self._tombstone.clear()
         self._dead.clear()
-        self._immediates, self._schedule = _build(self._callables)
+        for metrics in self._metrics:
+            for k in list(six.iterkeys(metrics)):
+                metrics[k] = 0
+        self._immediates, self._schedule = _build(
+            self._callables, self._initial_schedule_strategy)
 
     def wait(self, timeout=None):
-        """Waits for the :py:func:`.start` method to gracefully exit.
+        """Waits for the :py:meth:`.start` method to gracefully exit.
 
         An optional timeout can be provided, which will cause the method to
         return within the specified timeout. If the timeout is reached, the
