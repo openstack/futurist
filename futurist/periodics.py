@@ -102,6 +102,33 @@ def _add_jitter(max_percent_jitter):
     return wrapper
 
 
+def _get_callback_name(cb):
+    segments = []
+    try:
+        segments.append(cb.__qualname__)
+    except AttributeError:
+        try:
+            segments.append(cb.__name__)
+            if inspect.ismethod(cb):
+                try:
+                    # This attribute doesn't exist on py3.x or newer, so
+                    # we optionally ignore it... (on those versions of
+                    # python `__qualname__` should have been found anyway).
+                    segments.insert(0, cb.im_class.__name__)
+                except AttributeError:
+                    pass
+        except AttributeError:
+            pass
+    if not segments:
+        return repr(cb)
+    else:
+        try:
+            segments.insert(0, cb.__module__)
+        except AttributeError:
+            pass
+        return ".".join(segments)
+
+
 def _last_finished_strategy(cb, started_at, finished_at, metrics):
     # Determine when the callback should next run based on when it was
     # last finished **only** given metrics about this information.
@@ -149,8 +176,8 @@ def _run_callback(cb, *args, **kwargs):
     # NOTE(harlowja): this needs to be a module level function so that the
     # process pool execution can locate it (it can't be a lambda or method
     # local function because it won't be able to find those).
-    started_at = _utils.now()
     pretty_tb = None
+    started_at = _utils.now()
     try:
         cb(*args, **kwargs)
     except Exception:
@@ -169,7 +196,8 @@ def _build(callables, next_run_scheduler):
     # Reverse order is used since these are later popped off (and to
     # ensure the popping order is first -> last we need to append them
     # in the opposite ordering last -> first).
-    for index, (cb, args, kwargs) in _utils.reverse_enumerate(callables):
+    reverse_it = _utils.reverse_enumerate(callables)
+    for index, (cb, _cb_name, args, kwargs) in reverse_it:
         if cb._periodic_run_immediately:
             immediates.append(index)
         else:
@@ -343,7 +371,8 @@ class PeriodicWorker(object):
                     args = self._NO_OP_ARGS
                 if kwargs is None:
                     kwargs = self._NO_OP_KWARGS
-                self._callables.append((cb, args, kwargs))
+                cb_name = _get_callback_name(cb)
+                self._callables.append((cb, cb_name, args, kwargs))
                 self._metrics.append({
                     'runs': 0,
                     'elapsed': 0,
@@ -373,14 +402,14 @@ class PeriodicWorker(object):
     def _run(self, executor):
         """Main worker run loop."""
 
-        def _on_done(kind, cb, index, submitted_at, fut):
+        def _on_done(kind, cb, cb_name, index, submitted_at, fut):
             started_at, finished_at, pretty_tb = fut.result()
             metrics = self._metrics[index]
             metrics['runs'] += 1
             if pretty_tb is not None:
                 how_often = cb._periodic_spacing
-                self._log.error("Failed to call %s %r (it runs every"
-                                " %0.2f seconds):\n%s", kind, cb,
+                self._log.error("Failed to call %s '%s' (it runs every"
+                                " %0.2f seconds):\n%s", kind, cb_name,
                                 how_often, pretty_tb)
                 metrics['failures'] += 1
             else:
@@ -404,13 +433,16 @@ class PeriodicWorker(object):
                 except IndexError:
                     pass
                 else:
-                    cb, args, kwargs = self._callables[index]
+                    cb, cb_name, args, kwargs = self._callables[index]
                     submitted_at = _utils.now()
+                    self._log.debug("Submitting immediate function '%s'",
+                                    cb_name)
                     fut = executor.submit(_run_callback,
                                           cb, *args, **kwargs)
                     fut.add_done_callback(functools.partial(_on_done,
                                                             'immediate',
-                                                            cb, index,
+                                                            cb, cb_name,
+                                                            index,
                                                             submitted_at))
             else:
                 # Figure out when we should run next (by selecting the
@@ -428,12 +460,15 @@ class PeriodicWorker(object):
                     when_next = next_run - now
                     if when_next <= 0:
                         # Run & schedule its next execution.
-                        cb, args, kwargs = self._callables[index]
+                        cb, cb_name, args, kwargs = self._callables[index]
+                        self._log.debug("Submitting periodic function '%s'",
+                                        cb_name)
                         fut = executor.submit(_run_callback,
                                               cb, *args, **kwargs)
                         fut.add_done_callback(functools.partial(_on_done,
                                                                 'periodic',
-                                                                cb, index,
+                                                                cb, cb_name,
+                                                                index,
                                                                 submitted_at))
                     else:
                         # Gotta wait...
@@ -446,10 +481,10 @@ class PeriodicWorker(object):
         if not self._log.isEnabledFor(logging.DEBUG):
             return
         for index, metrics in enumerate(self._metrics):
-            cb, _args, _kwargs = self._callables[index]
+            cb, cb_name, _args, _kwargs = self._callables[index]
             runs = metrics['runs']
-            self._log.debug("Stopped running callback[%s] %r periodically:",
-                            index, cb)
+            self._log.debug("Stopped running callback[%s] '%s' periodically:",
+                            index, cb_name)
             self._log.debug("  Periodicity = %ss", cb._periodic_spacing)
             self._log.debug("  Runs = %s", runs)
             self._log.debug("  Failures = %s", metrics['failures'])
