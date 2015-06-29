@@ -28,7 +28,7 @@ from random import SystemRandom as random
 import six
 
 import futurist
-from futurist import _utils
+from futurist import _utils as utils
 
 LOG = logging.getLogger(__name__)
 
@@ -102,33 +102,6 @@ def _add_jitter(max_percent_jitter):
     return wrapper
 
 
-def _get_callback_name(cb):
-    segments = []
-    try:
-        segments.append(cb.__qualname__)
-    except AttributeError:
-        try:
-            segments.append(cb.__name__)
-            if inspect.ismethod(cb):
-                try:
-                    # This attribute doesn't exist on py3.x or newer, so
-                    # we optionally ignore it... (on those versions of
-                    # python `__qualname__` should have been found anyway).
-                    segments.insert(0, cb.im_class.__name__)
-                except AttributeError:
-                    pass
-        except AttributeError:
-            pass
-    if not segments:
-        return repr(cb)
-    else:
-        try:
-            segments.insert(0, cb.__module__)
-        except AttributeError:
-            pass
-        return ".".join(segments)
-
-
 def _last_finished_strategy(cb, started_at, finished_at, metrics):
     # Determine when the callback should next run based on when it was
     # last finished **only** given metrics about this information.
@@ -177,7 +150,7 @@ def _run_callback(cb, *args, **kwargs):
     # process pool execution can locate it (it can't be a lambda or method
     # local function because it won't be able to find those).
     pretty_tb = None
-    started_at = _utils.now()
+    started_at = utils.now()
     try:
         cb(*args, **kwargs)
     except Exception:
@@ -185,7 +158,7 @@ def _run_callback(cb, *args, **kwargs):
         # capture and return the traceback, so that we can have reliable
         # timing information.
         pretty_tb = traceback.format_exc()
-    finished_at = _utils.now()
+    finished_at = utils.now()
     return (started_at, finished_at, pretty_tb)
 
 
@@ -196,13 +169,13 @@ def _build(callables, next_run_scheduler):
     # Reverse order is used since these are later popped off (and to
     # ensure the popping order is first -> last we need to append them
     # in the opposite ordering last -> first).
-    reverse_it = _utils.reverse_enumerate(callables)
+    reverse_it = utils.reverse_enumerate(callables)
     for index, (cb, _cb_name, args, kwargs) in reverse_it:
         if cb._periodic_run_immediately:
             immediates.append(index)
         else:
             if now is None:
-                now = _utils.now()
+                now = utils.now()
             next_run = next_run_scheduler(cb, now)
             schedule.push(next_run, index)
     return immediates, schedule
@@ -378,7 +351,7 @@ class PeriodicWorker(object):
                     args = self._NO_OP_ARGS
                 if kwargs is None:
                     kwargs = self._NO_OP_KWARGS
-                cb_name = _get_callback_name(cb)
+                cb_name = utils.get_callback_name(cb)
                 self._callables.append((cb, cb_name, args, kwargs))
                 self._metrics.append(self._INITIAL_METRICS.copy())
         try:
@@ -435,7 +408,7 @@ class PeriodicWorker(object):
                     pass
                 else:
                     cb, cb_name, args, kwargs = self._callables[index]
-                    submitted_at = _utils.now()
+                    submitted_at = utils.now()
                     self._log.debug("Submitting immediate function '%s'",
                                     cb_name)
                     fut = executor.submit(_run_callback,
@@ -456,7 +429,7 @@ class PeriodicWorker(object):
                         self._waiter.wait(self.MAX_LOOP_IDLE)
                     if self._tombstone.is_set():
                         break
-                    submitted_at = now = _utils.now()
+                    submitted_at = now = utils.now()
                     next_run, index = self._schedule.pop()
                     when_next = next_run - now
                     if when_next <= 0:
@@ -510,10 +483,10 @@ class PeriodicWorker(object):
         if missing_attrs:
             raise ValueError("Periodic callback %r missing required"
                              " attributes %s" % (cb, missing_attrs))
-        now = _utils.now()
+        now = utils.now()
         with self._waiter:
             index = len(self._callables)
-            cb_name = _get_callback_name(cb)
+            cb_name = utils.get_callback_name(cb)
             self._callables.append((cb, cb_name, args, kwargs))
             self._metrics.append(self._INITIAL_METRICS.copy())
             if cb._periodic_run_immediately:
