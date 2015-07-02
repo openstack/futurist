@@ -14,6 +14,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import inspect
 import multiprocessing
 
 from monotonic import monotonic as now  # noqa
@@ -23,6 +24,37 @@ try:
     EVENTLET_AVAILABLE = True
 except ImportError:
     EVENTLET_AVAILABLE = False
+
+
+def get_callback_name(cb):
+    """Tries to get a callbacks fully-qualified name.
+
+    If no name can be produced ``repr(cb)`` is called and returned.
+    """
+    segments = []
+    try:
+        segments.append(cb.__qualname__)
+    except AttributeError:
+        try:
+            segments.append(cb.__name__)
+            if inspect.ismethod(cb):
+                try:
+                    # This attribute doesn't exist on py3.x or newer, so
+                    # we optionally ignore it... (on those versions of
+                    # python `__qualname__` should have been found anyway).
+                    segments.insert(0, cb.im_class.__name__)
+                except AttributeError:
+                    pass
+        except AttributeError:
+            pass
+    if not segments:
+        return repr(cb)
+    else:
+        try:
+            segments.insert(0, cb.__module__)
+        except AttributeError:
+            pass
+        return ".".join(segments)
 
 
 def reverse_enumerate(items):
