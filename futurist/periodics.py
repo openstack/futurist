@@ -19,6 +19,7 @@ import functools
 import heapq
 import inspect
 import logging
+import math
 import threading
 import traceback
 
@@ -116,6 +117,17 @@ def _last_started_strategy(cb, started_at, finished_at, metrics):
     return started_at + how_often
 
 
+def _aligned_last_finished_strategy(cb, started_at, finished_at, metrics):
+    # Determine when the callback should next run based on when it was
+    # last finished **only** where the last finished time is first aligned to
+    # be a multiple of the expected spacing (so that no matter how long or
+    # how short the callback takes it is always ran on its next aligned
+    # to spacing time).
+    how_often = cb._periodic_spacing
+    aligned_finished_at = finished_at - math.fmod(finished_at, how_often)
+    return aligned_finished_at + how_often
+
+
 def _now_plus_periodicity(cb, now):
     how_often = cb._periodic_spacing
     return how_often + now
@@ -145,12 +157,12 @@ class _Schedule(object):
         return heapq.heappop(self._ordering)
 
 
-def _run_callback(cb, *args, **kwargs):
+def _run_callback(now_func, cb, *args, **kwargs):
     # NOTE(harlowja): this needs to be a module level function so that the
     # process pool execution can locate it (it can't be a lambda or method
     # local function because it won't be able to find those).
     pretty_tb = None
-    started_at = utils.now()
+    started_at = now_func()
     try:
         cb(*args, **kwargs)
     except Exception:
@@ -158,11 +170,11 @@ def _run_callback(cb, *args, **kwargs):
         # capture and return the traceback, so that we can have reliable
         # timing information.
         pretty_tb = traceback.format_exc()
-    finished_at = utils.now()
+    finished_at = now_func()
     return (started_at, finished_at, pretty_tb)
 
 
-def _build(callables, next_run_scheduler):
+def _build(now_func, callables, next_run_scheduler):
     schedule = _Schedule()
     now = None
     immediates = []
@@ -175,7 +187,7 @@ def _build(callables, next_run_scheduler):
             immediates.append(index)
         else:
             if now is None:
-                now = utils.now()
+                now = now_func()
             next_run = next_run_scheduler(cb, now)
             schedule.push(next_run, index)
     return immediates, schedule
@@ -226,6 +238,14 @@ class PeriodicWorker(object):
             _add_jitter(DEFAULT_JITTER)(_last_finished_strategy),
             _now_plus_periodicity,
         ),
+        'aligned_last_finished': (
+            _aligned_last_finished_strategy,
+            _now_plus_periodicity,
+        ),
+        'aligned_last_finished_jitter': (
+            _add_jitter(DEFAULT_JITTER)(_aligned_last_finished_strategy),
+            _now_plus_periodicity,
+        ),
     }
     """
     Built in scheduling strategies (used to determine when next to run
@@ -243,7 +263,7 @@ class PeriodicWorker(object):
     def create(cls, objects, exclude_hidden=True,
                log=None, executor_factory=None,
                cond_cls=threading.Condition, event_cls=threading.Event,
-               schedule_strategy='last_started'):
+               schedule_strategy='last_started', now_func=utils.now):
         """Automatically creates a worker by analyzing object(s) methods.
 
         Only picks up methods that have been tagged/decorated with
@@ -277,6 +297,10 @@ class PeriodicWorker(object):
                                   strategies that can return the
                                   next time a callable should run
         :type schedule_strategy: string
+        :param now_func: callable that can return the current time offset
+                         from some point (used in calculating elapsed times
+                         and next times to run)
+        :type now_func: callable
         """
         callables = []
         for obj in objects:
@@ -292,11 +316,11 @@ class PeriodicWorker(object):
                                           cls._NO_OP_KWARGS))
         return cls(callables, log=log, executor_factory=executor_factory,
                    cond_cls=cond_cls, event_cls=event_cls,
-                   schedule_strategy=schedule_strategy)
+                   schedule_strategy=schedule_strategy, now_func=now_func)
 
     def __init__(self, callables, log=None, executor_factory=None,
                  cond_cls=threading.Condition, event_cls=threading.Event,
-                 schedule_strategy='last_started'):
+                 schedule_strategy='last_started', now_func=utils.now):
         """Creates a new worker using the given periodic callables.
 
         :param callables: a iterable of tuple objects previously decorated
@@ -331,6 +355,10 @@ class PeriodicWorker(object):
                                   strategies that can return the
                                   next time a callable should run
         :type schedule_strategy: string
+        :param now_func: callable that can return the current time offset
+                         from some point (used in calculating elapsed times
+                         and next times to run)
+        :type now_func: callable
         """
         self._tombstone = event_cls()
         self._waiter = cond_cls()
@@ -364,11 +392,12 @@ class PeriodicWorker(object):
                              " %s selectable strategies"
                              % (schedule_strategy, valid_strategies))
         self._immediates, self._schedule = _build(
-            self._callables, self._initial_schedule_strategy)
+            now_func, self._callables, self._initial_schedule_strategy)
         self._log = log or LOG
         if executor_factory is None:
             executor_factory = lambda: futurist.SynchronousExecutor()
         self._executor_factory = executor_factory
+        self._now_func = now_func
 
     def __len__(self):
         return len(self._callables)
@@ -408,10 +437,11 @@ class PeriodicWorker(object):
                     pass
                 else:
                     cb, cb_name, args, kwargs = self._callables[index]
-                    submitted_at = utils.now()
+                    submitted_at = self._now_func()
                     self._log.debug("Submitting immediate function '%s'",
                                     cb_name)
                     fut = executor.submit(_run_callback,
+                                          self._now_func,
                                           cb, *args, **kwargs)
                     fut.add_done_callback(functools.partial(_on_done,
                                                             'immediate',
@@ -429,7 +459,7 @@ class PeriodicWorker(object):
                         self._waiter.wait(self.MAX_LOOP_IDLE)
                     if self._tombstone.is_set():
                         break
-                    submitted_at = now = utils.now()
+                    submitted_at = now = self._now_func()
                     next_run, index = self._schedule.pop()
                     when_next = next_run - now
                     if when_next <= 0:
@@ -438,6 +468,7 @@ class PeriodicWorker(object):
                         self._log.debug("Submitting periodic function '%s'",
                                         cb_name)
                         fut = executor.submit(_run_callback,
+                                              self._now_func,
                                               cb, *args, **kwargs)
                         fut.add_done_callback(functools.partial(_on_done,
                                                                 'periodic',
@@ -483,7 +514,7 @@ class PeriodicWorker(object):
         if missing_attrs:
             raise ValueError("Periodic callback %r missing required"
                              " attributes %s" % (cb, missing_attrs))
-        now = utils.now()
+        now = self._now_func()
         with self._waiter:
             index = len(self._callables)
             cb_name = utils.get_callback_name(cb)
@@ -534,7 +565,7 @@ class PeriodicWorker(object):
             for k in list(six.iterkeys(metrics)):
                 metrics[k] = 0
         self._immediates, self._schedule = _build(
-            self._callables, self._initial_schedule_strategy)
+            self._now_func, self._callables, self._initial_schedule_strategy)
 
     def wait(self, timeout=None):
         """Waits for the :py:meth:`.start` method to gracefully exit.

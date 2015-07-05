@@ -69,19 +69,67 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
                   'executor_kwargs': {},
                   'create_destroy': create_destroy_thread,
                   'sleep': time.sleep,
+                  'event_cls': threading.Event,
                   'worker_kwargs': {}}),
         ('thread', {'executor_cls': futurist.ThreadPoolExecutor,
                     'executor_kwargs': {'max_workers': 2},
                     'create_destroy': create_destroy_thread,
                     'sleep': time.sleep,
+                    'event_cls': threading.Event,
                     'worker_kwargs': {}}),
         ('green', {'executor_cls': futurist.GreenThreadPoolExecutor,
                    'executor_kwargs': {'max_workers': 10},
                    'sleep': eventlet.sleep,
+                   'event_cls': green_threading.Event,
                    'create_destroy': create_destroy_green_thread,
                    'worker_kwargs': {'cond_cls': green_threading.Condition,
                                      'event_cls': green_threading.Event}}),
     ]
+
+    def test_aligned_strategy(self):
+        last_now = 5.5
+        nows = [
+            # Initial schedule building.
+            0,
+            # Worker run loop fetch time (to see how long to wait).
+            2,
+            # Function call start time.
+            2,
+            # Function call end time.
+            5,
+            # Stop.
+            -1,
+        ]
+        nows = list(reversed(nows))
+        ev = self.event_cls()
+        called_at = []
+
+        def now_func():
+            if len(nows) == 1:
+                ev.set()
+                return last_now
+            return nows.pop()
+
+        @periodics.periodic(2, run_immediately=False)
+        def slow_periodic():
+            called_at.append(list(nows))
+
+        callables = [
+            (slow_periodic, None, None),
+        ]
+        worker_kwargs = self.worker_kwargs.copy()
+        worker_kwargs['schedule_strategy'] = 'aligned_last_finished'
+        worker_kwargs['now_func'] = now_func
+        w = periodics.PeriodicWorker(callables, **worker_kwargs)
+
+        with self.create_destroy(w.start):
+            ev.wait()
+            w.stop()
+
+        schedule_order = w._schedule._ordering
+
+        # Should always be aligned to next time (in this case 6.0)
+        self.assertEqual([(6.0, 0)], schedule_order)
 
     def test_add_on_demand(self):
         called = set()
