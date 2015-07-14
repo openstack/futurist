@@ -45,3 +45,11 @@ Miscellaneous
 
 .. autoclass:: futurist.ExecutorStatistics
     :members:
+
+-------
+Waiters
+-------
+
+.. autofunction:: futurist.waiters.wait_for_any
+.. autofunction:: futurist.waiters.wait_for_all
+.. autoclass:: futurist.waiters.DoneAndNotDoneFutures
