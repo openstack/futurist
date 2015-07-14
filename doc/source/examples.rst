@@ -83,7 +83,7 @@ Creating and using a green thread-based executor
 Creating and using a process-based executor
 -------------------------------------------
 
-.. testcode::
+::
 
     import time
 
@@ -100,7 +100,7 @@ Creating and using a process-based executor
 
 **Expected output:**
 
-.. testoutput::
+::
 
     hello
 
@@ -162,6 +162,10 @@ Running a set of functions periodically
     w.wait()
     t.join()
 
+.. testoutput::
+    :hide:
+
+    ...
 
 -----------------------------------------------------------
 Running a set of functions periodically (using an executor)
@@ -230,3 +234,8 @@ Running a set of functions periodically (using an executor)
     w.stop()
     w.wait()
     t.join()
+
+.. testoutput::
+    :hide:
+
+    ...
