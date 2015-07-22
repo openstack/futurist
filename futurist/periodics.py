@@ -21,11 +21,11 @@ import inspect
 import logging
 import math
 import threading
-import traceback
 
 # For: https://wiki.openstack.org/wiki/Security/Projects/Bandit
 from random import SystemRandom as random
 
+from concurrent import futures
 import six
 
 import futurist
@@ -205,21 +205,38 @@ class _Schedule(object):
         return heapq.heappop(self._ordering)
 
 
-def _run_callback(now_func, cb, *args, **kwargs):
+def _run_callback_retain(now_func, cb, *args, **kwargs):
     # NOTE(harlowja): this needs to be a module level function so that the
     # process pool execution can locate it (it can't be a lambda or method
     # local function because it won't be able to find those).
-    pretty_tb = None
+    failure = None
     started_at = now_func()
     try:
         cb(*args, **kwargs)
     except Exception:
         # Until https://bugs.python.org/issue24451 is merged we have to
-        # capture and return the traceback, so that we can have reliable
+        # capture and return the failure, so that we can have reliable
         # timing information.
-        pretty_tb = traceback.format_exc()
+        failure = utils.Failure(True)
     finished_at = now_func()
-    return (started_at, finished_at, pretty_tb)
+    return (started_at, finished_at, failure)
+
+
+def _run_callback_no_retain(now_func, cb, *args, **kwargs):
+    # NOTE(harlowja): this needs to be a module level function so that the
+    # process pool execution can locate it (it can't be a lambda or method
+    # local function because it won't be able to find those).
+    failure = None
+    started_at = now_func()
+    try:
+        cb(*args, **kwargs)
+    except Exception:
+        # Until https://bugs.python.org/issue24451 is merged we have to
+        # capture and return the failure, so that we can have reliable
+        # timing information.
+        failure = utils.Failure(False)
+    finished_at = now_func()
+    return (started_at, finished_at, failure)
 
 
 def _build(now_func, callables, next_run_scheduler):
@@ -455,18 +472,23 @@ class PeriodicWorker(object):
         """How many callables are currently active."""
         return len(self._callables)
 
-    def _run(self, executor):
+    def _run(self, executor, runner):
         """Main worker run loop."""
 
         def _on_done(kind, cb, cb_name, index, submitted_at, fut):
-            started_at, finished_at, pretty_tb = fut.result()
+            started_at, finished_at, failure = fut.result()
             cb_metrics, _watcher = self._watchers[index]
             cb_metrics['runs'] += 1
-            if pretty_tb is not None:
+            if failure is not None:
                 how_often = cb._periodic_spacing
-                self._log.error("Failed to call %s '%s' (it runs every"
-                                " %0.2f seconds):\n%s", kind, cb_name,
-                                how_often, pretty_tb)
+                if all(failure.exc_info):
+                    self._log.error("Failed to call %s '%s' (it runs every"
+                                    " %0.2f seconds)", kind, cb_name,
+                                    how_often, exc_info=failure.exc_info)
+                else:
+                    self._log.error("Failed to call %s '%s' (it runs every"
+                                    " %0.2f seconds):\n%s", kind, cb_name,
+                                    how_often, failure.traceback)
                 cb_metrics['failures'] += 1
             else:
                 cb_metrics['successes'] += 1
@@ -493,7 +515,7 @@ class PeriodicWorker(object):
                     submitted_at = self._now_func()
                     self._log.debug("Submitting immediate function '%s'",
                                     cb_name)
-                    fut = executor.submit(_run_callback,
+                    fut = executor.submit(runner,
                                           self._now_func,
                                           cb, *args, **kwargs)
                     fut.add_done_callback(functools.partial(_on_done,
@@ -520,7 +542,7 @@ class PeriodicWorker(object):
                         cb, cb_name, args, kwargs = self._callables[index]
                         self._log.debug("Submitting periodic function '%s'",
                                         cb_name)
-                        fut = executor.submit(_run_callback,
+                        fut = executor.submit(runner,
                                               self._now_func,
                                               cb, *args, **kwargs)
                         fut.add_done_callback(functools.partial(_on_done,
@@ -606,9 +628,20 @@ class PeriodicWorker(object):
             raise RuntimeError("A periodic worker can not start"
                                " without any callables")
         executor = self._executor_factory()
+        # NOTE(harlowja): we compare with the futures process pool executor
+        # since its the base type of futurist ProcessPoolExecutor and it is
+        # possible for users to pass in there own custom executors, this one
+        # is known to not be able to retain tracebacks...
+        if isinstance(executor, futures.ProcessPoolExecutor):
+            # Pickling a traceback will not work, so do not try to do it...
+            #
+            # Avoids 'TypeError: can't pickle traceback objects'
+            runner = _run_callback_no_retain
+        else:
+            runner = _run_callback_retain
         self._dead.clear()
         try:
-            self._run(executor)
+            self._run(executor, runner)
         finally:
             executor.shutdown()
             self._dead.set()

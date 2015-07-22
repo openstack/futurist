@@ -16,6 +16,8 @@
 
 import inspect
 import multiprocessing
+import sys
+import traceback
 
 from monotonic import monotonic as now  # noqa
 
@@ -24,6 +26,26 @@ try:
     EVENTLET_AVAILABLE = True
 except ImportError:
     EVENTLET_AVAILABLE = False
+
+
+class Failure(object):
+    """Object that captures a exception (and its associated information)."""
+
+    def __init__(self, retain_tb):
+        exc_info = sys.exc_info()
+        if not any(exc_info):
+            raise RuntimeError("No active exception being handled, can"
+                               " not create a failure which represents"
+                               " nothing")
+        try:
+            if retain_tb:
+                self.exc_info = tuple(exc_info)
+                self.traceback = None
+            else:
+                self.exc_info = (exc_info[0], exc_info[1], None)
+                self.traceback = "".join(traceback.format_exception(*exc_info))
+        finally:
+            del exc_info
 
 
 def get_callback_name(cb):
