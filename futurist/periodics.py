@@ -413,6 +413,7 @@ class PeriodicWorker(object):
         self._tombstone = event_cls()
         self._waiter = cond_cls()
         self._dead = event_cls()
+        self._active = event_cls()
         self._watchers = []
         self._callables = []
         for (cb, args, kwargs) in callables:
@@ -605,13 +606,18 @@ class PeriodicWorker(object):
         if not self._callables and not allow_empty:
             raise RuntimeError("A periodic worker can not start"
                                " without any callables")
+        if self._active.is_set():
+            raise RuntimeError("A periodic worker can not be started"
+                               " twice")
         executor = self._executor_factory()
         self._dead.clear()
+        self._active.set()
         try:
             self._run(executor)
         finally:
             executor.shutdown()
             self._dead.set()
+            self._active.clear()
             self._on_finish()
 
     def stop(self):

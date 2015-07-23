@@ -133,6 +133,15 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
         nows = list(reversed(nows))
         self._test_strategy('last_finished', nows, last_now, 5.0)
 
+    def test_double_start_fail(self):
+        w = periodics.PeriodicWorker([], **self.worker_kwargs)
+        with self.create_destroy(w.start, allow_empty=True):
+            # Give some time for the thread to start...
+            self.sleep(0.5)
+            # Now ensure we can't start it again...
+            self.assertRaises(RuntimeError, w.start)
+            w.stop()
+
     def test_last_started_strategy(self):
         last_now = 3.2
         nows = [
