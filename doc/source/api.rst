@@ -35,9 +35,12 @@ Periodics
 
 .. autoclass:: futurist.periodics.PeriodicWorker
     :members:
-    :special-members: __init__
+    :special-members: __init__, __len__
 
 .. autofunction:: futurist.periodics.periodic
+
+.. autoclass:: futurist.periodics.Watcher
+    :members:
 
 -------------
 Miscellaneous

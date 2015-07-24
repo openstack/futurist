@@ -191,6 +191,54 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
                 self.sleep(0.1)
             w.stop()
 
+    def test_not_added(self):
+
+        @periodics.periodic(0.5)
+        def no_add_me():
+            pass
+
+        no_add_me._is_periodic = False
+
+        @periodics.periodic(0.5)
+        def add_me():
+            pass
+
+        w = periodics.PeriodicWorker([], **self.worker_kwargs)
+        self.assertEqual(0, len(w))
+        self.assertIsNone(w.add(no_add_me))
+        self.assertEqual(0, len(w))
+
+        self.assertIsNotNone(w.add(add_me))
+        self.assertEqual(1, len(w))
+
+    def test_watcher(self):
+
+        def cb():
+            pass
+
+        callables = [
+            (every_one_sec, (cb,), None),
+            (every_half_sec, (cb,), None),
+        ]
+        executor_factory = lambda: self.executor_cls(**self.executor_kwargs)
+        w = periodics.PeriodicWorker(callables,
+                                     executor_factory=executor_factory,
+                                     **self.worker_kwargs)
+        with self.create_destroy(w.start):
+            self.sleep(2.0)
+            w.stop()
+
+        for watcher in w.iter_watchers():
+            self.assertGreaterEqual(watcher.runs, 1)
+
+        w.reset()
+        for watcher in w.iter_watchers():
+            self.assertEqual(watcher.runs, 0)
+            self.assertEqual(watcher.successes, 0)
+            self.assertEqual(watcher.failures, 0)
+            self.assertEqual(watcher.elapsed, 0)
+            self.assertEqual(watcher.elapsed_waiting, 0)
+
     def test_worker(self):
         called = []
 
