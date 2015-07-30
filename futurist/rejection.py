@@ -14,16 +14,19 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-# Promote accessible items to this module namespace (for easy access).
+"""Executor rejection strategies."""
 
-from futurist._futures import Future  # noqa
-from futurist._futures import GreenFuture  # noqa
+import futurist
 
-from futurist._futures import GreenThreadPoolExecutor  # noqa
-from futurist._futures import ProcessPoolExecutor  # noqa
-from futurist._futures import SynchronousExecutor  # noqa
-from futurist._futures import ThreadPoolExecutor  # noqa
 
-from futurist._futures import RejectedSubmission  # noqa
+def reject_when_reached(max_backlog):
+    """Returns a function that will raise when backlog goes past max size."""
 
-from futurist._futures import ExecutorStatistics  # noqa
+    def _rejector(executor, backlog):
+        if backlog + 1 >= max_backlog:
+            raise futurist.RejectedSubmission("Current backlog %s is not"
+                                              " allowed to go"
+                                              " beyond %s" % (backlog,
+                                                              max_backlog))
+
+    return _rejector

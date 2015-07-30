@@ -8,9 +8,11 @@ Executors
 
 .. autoclass:: futurist.GreenThreadPoolExecutor
     :members:
+    :special-members: __init__
 
 .. autoclass:: futurist.ProcessPoolExecutor
     :members:
+    :special-members: __init__
 
 .. autoclass:: futurist.SynchronousExecutor
     :members:
@@ -18,6 +20,7 @@ Executors
 
 .. autoclass:: futurist.ThreadPoolExecutor
     :members:
+    :special-members: __init__
 
 -------
 Futures
@@ -47,6 +50,13 @@ Miscellaneous
 -------------
 
 .. autoclass:: futurist.ExecutorStatistics
+    :members:
+
+----------
+Exceptions
+----------
+
+.. autoclass:: futurist.RejectedSubmission
     :members:
 
 -------
