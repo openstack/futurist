@@ -579,10 +579,14 @@ class PeriodicWorker(object):
                 # next desired run time).
                 with self._waiter:
                     while (not self._schedule and
-                           not self._tombstone.is_set()):
+                           not self._tombstone.is_set() and
+                           not self._immediates):
                         self._waiter.wait(self.MAX_LOOP_IDLE)
                     if self._tombstone.is_set():
                         break
+                    if self._immediates:
+                        # This will get popped in the prior condition...
+                        continue
                     submitted_at = now = self._now_func()
                     next_run, index = self._schedule.pop()
                     when_next = next_run - now

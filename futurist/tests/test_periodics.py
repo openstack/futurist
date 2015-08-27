@@ -133,6 +133,22 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
         nows = list(reversed(nows))
         self._test_strategy('last_finished', nows, last_now, 5.0)
 
+    def test_waiting_immediate_add_processed(self):
+        ran_at = []
+
+        @periodics.periodic(0.1, run_immediately=True)
+        def activated_periodic():
+            ran_at.append(time.time())
+
+        w = periodics.PeriodicWorker([], **self.worker_kwargs)
+        with self.create_destroy(w.start, allow_empty=True):
+            # Give some time for the thread to start...
+            self.sleep(0.5)
+            w.add(activated_periodic)
+            while len(ran_at) == 0:
+                self.sleep(0.1)
+            w.stop()
+
     def test_double_start_fail(self):
         w = periodics.PeriodicWorker([], **self.worker_kwargs)
         with self.create_destroy(w.start, allow_empty=True):
