@@ -79,7 +79,13 @@ class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
 
         self.assertEqual(3, self.executor.statistics.executed)
         self.assertEqual(1, self.executor.statistics.failures)
-        self.assertGreaterEqual(self.executor.statistics.runtime, 0.2)
+        self.assertGreaterEqual(self.executor.statistics.runtime,
+                                # It appears that the the thread run loop
+                                # may call this before 0.2 seconds (or 0.2
+                                # will not be represented as a float correctly)
+                                # is really up so accommodate for that
+                                # happening...
+                                0.199)
 
     def test_post_shutdown_raises(self):
         executor = self.executor_cls(**self.executor_kwargs)
