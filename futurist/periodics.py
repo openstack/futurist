@@ -14,6 +14,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import collections
 import fractions
 import functools
 import heapq
@@ -257,12 +258,8 @@ def _run_callback_no_retain(now_func, cb, *args, **kwargs):
 def _build(now_func, callables, next_run_scheduler):
     schedule = _Schedule()
     now = None
-    immediates = []
-    # Reverse order is used since these are later popped off (and to
-    # ensure the popping order is first -> last we need to append them
-    # in the opposite ordering last -> first).
-    reverse_it = utils.reverse_enumerate(callables)
-    for index, (cb, _cb_name, args, kwargs) in reverse_it:
+    immediates = collections.deque()
+    for index, (cb, _cb_name, args, kwargs) in enumerate(callables):
         if cb._periodic_run_immediately:
             immediates.append(index)
         else:
@@ -556,7 +553,7 @@ class PeriodicWorker(object):
             if self._immediates:
                 # Run & schedule its next execution.
                 try:
-                    index = self._immediates.pop()
+                    index = self._immediates.popleft()
                 except IndexError:
                     pass
                 else:
