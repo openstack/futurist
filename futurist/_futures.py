@@ -348,8 +348,7 @@ class SynchronousExecutor(_futures.Executor):
 
 
 class _GreenWorker(object):
-    def __init__(self, executor, work, work_queue):
-        self.executor = executor
+    def __init__(self, work, work_queue):
         self.work = work
         self.work_queue = work_queue
 
@@ -473,7 +472,7 @@ class GreenThreadPoolExecutor(_futures.Executor):
         """
         alive = self._pool.running() + self._pool.waiting()
         if alive < self._max_workers:
-            self._pool.spawn_n(_GreenWorker(self, work, self._delayed_work))
+            self._pool.spawn_n(_GreenWorker(work, self._delayed_work))
             return True
         return False
 
