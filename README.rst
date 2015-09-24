@@ -10,7 +10,11 @@ Futurist
     :target: https://pypi.python.org/pypi/futurist/
     :alt: Downloads
 
-Code from the future, delivered to you in the **now**.
+Code from the future, delivered to you in the **now**. The goal of this library
+would be to provide a well documented futures classes/utilities/additions that
+allows for providing a level of transparency in how asynchronous work gets
+executed. This library currently adds statistics gathering, an eventlet
+executor, a synchronous executor etc.
 
 * Free software: Apache license
 * Documentation: http://docs.openstack.org/developer/futurist
