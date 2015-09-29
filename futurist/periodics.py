@@ -103,7 +103,7 @@ def _check_attrs(obj):
     return missing_attrs
 
 
-def periodic(spacing, run_immediately=False):
+def periodic(spacing, run_immediately=False, enabled=True):
     """Tags a method/function as wanting/able to execute periodically.
 
     :param spacing: how often to run the decorated function (required)
@@ -112,6 +112,8 @@ def periodic(spacing, run_immediately=False):
                             immediately or wait until the spacing provided has
                             elapsed before running for the first time
     :type run_immediately: boolean
+    :param enabled: whether the task is enabled to run
+    :type enabled: boolean
     """
 
     if spacing <= 0:
@@ -119,7 +121,7 @@ def periodic(spacing, run_immediately=False):
                          " zero instead of %s" % spacing)
 
     def wrapper(f):
-        f._is_periodic = True
+        f._is_periodic = enabled
         f._periodic_spacing = spacing
         f._periodic_run_immediately = run_immediately
 
