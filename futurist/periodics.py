@@ -46,8 +46,20 @@ IMMEDIATE = 'immediate'
 class Watcher(object):
     """A **read-only** object representing a periodics callbacks activities."""
 
+    _REPR_MSG_TPL = ("<Watcher object at 0x%(ident)x "
+                     "("
+                     "runs=%(runs)s,"
+                     " successes=%(successes)s,"
+                     " failures=%(failures)s,"
+                     " elapsed=%(elapsed)0.2f,"
+                     " elapsed_waiting=%(elapsed_waiting)0.2f"
+                     ")>")
+
     def __init__(self, metrics):
         self._metrics = metrics
+
+    def __repr__(self):
+        return self._REPR_MSG_TPL % dict(ident=id(self), **self._metrics)
 
     @property
     def runs(self):
