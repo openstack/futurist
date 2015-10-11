@@ -407,8 +407,10 @@ class ExecutorStatistics(object):
 
     __slots__ = ['_failures', '_executed', '_runtime', '_cancelled']
 
-    __repr_format = ("failures=%(failures)s, executed=%(executed)s, "
-                     "runtime=%(runtime)s, cancelled=%(cancelled)s")
+    _REPR_MSG_TPL = ("<ExecutorStatistics object at 0x%(ident)x"
+                     " (failures=%(failures)s,"
+                     " executed=%(executed)s, runtime=%(runtime)0.2f,"
+                     " cancelled=%(cancelled)s)>")
 
     def __init__(self, failures=0, executed=0, runtime=0.0, cancelled=0):
         self._failures = failures
@@ -463,13 +465,10 @@ class ExecutorStatistics(object):
         return self._runtime / self._executed
 
     def __repr__(self):
-        r = self.__class__.__name__
-        r += "("
-        r += self.__repr_format % ({
+        return self._REPR_MSG_TPL % ({
+            'ident': id(self),
             'failures': self._failures,
             'executed': self._executed,
             'runtime': self._runtime,
             'cancelled': self._cancelled,
         })
-        r += ")"
-        return r
