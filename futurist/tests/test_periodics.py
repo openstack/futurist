@@ -234,6 +234,21 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
         self.assertIsNotNone(w.add(add_me))
         self.assertEqual(1, len(w))
 
+    def test_is_periodic(self):
+
+        @periodics.periodic(0.5, enabled=False)
+        def no_add_me():
+            pass
+
+        @periodics.periodic(0.5)
+        def add_me():
+            pass
+
+        self.assertTrue(periodics.is_periodic(add_me))
+        self.assertTrue(periodics.is_periodic(no_add_me))
+        self.assertFalse(periodics.is_periodic(self.test_is_periodic))
+        self.assertFalse(periodics.is_periodic(42))
+
     def test_watcher(self):
 
         def cb():

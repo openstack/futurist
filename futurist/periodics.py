@@ -115,6 +115,16 @@ def _check_attrs(obj):
     return missing_attrs
 
 
+def is_periodic(obj):
+    """Check whether an object is a valid periodic callable.
+
+    :param obj: object to inspect
+    :type obj: anything
+    :return: True if obj is a periodic task, otherwise False
+    """
+    return callable(obj) and not _check_attrs(obj)
+
+
 def periodic(spacing, run_immediately=False, enabled=True):
     """Tags a method/function as wanting/able to execute periodically.
 
