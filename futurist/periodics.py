@@ -358,7 +358,7 @@ class PeriodicWorker(object):
                log=None, executor_factory=None,
                cond_cls=threading.Condition, event_cls=threading.Event,
                schedule_strategy='last_started', now_func=utils.now,
-               on_failure=None):
+               on_failure=None, args=_NO_OP_ARGS, kwargs=_NO_OP_KWARGS):
         """Automatically creates a worker by analyzing object(s) methods.
 
         Only picks up methods that have been tagged/decorated with
@@ -415,6 +415,10 @@ class PeriodicWorker(object):
                            any user provided callable should not raise
                            exceptions on being called
         :type on_failure: callable
+        :param args: positional arguments to be passed to all callables
+        :type args: tuple
+        :param kwargs: keyword arguments to be passed to all callables
+        :type kwargs: dict
         """
         callables = []
         for obj in objects:
@@ -424,10 +428,7 @@ class PeriodicWorker(object):
                 if six.callable(member):
                     missing_attrs = _check_attrs(member)
                     if not missing_attrs:
-                        # These do not support custom args, kwargs...
-                        callables.append((member,
-                                          cls._NO_OP_ARGS,
-                                          cls._NO_OP_KWARGS))
+                        callables.append((member, args, kwargs))
         return cls(callables, log=log, executor_factory=executor_factory,
                    cond_cls=cond_cls, event_cls=event_cls,
                    schedule_strategy=schedule_strategy, now_func=now_func,
