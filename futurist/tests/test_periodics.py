@@ -282,3 +282,39 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
 
         am_called = sum(called)
         self.assertGreaterEqual(am_called, 4)
+
+
+class RejectingExecutor(futurist.GreenThreadPoolExecutor):
+    MAX_REJECTIONS_COUNT = 2
+
+    def _reject(self, *args):
+        if self._rejections_count < self.MAX_REJECTIONS_COUNT:
+            self._rejections_count += 1
+            raise futurist.RejectedSubmission()
+
+    def __init__(self):
+        self._rejections_count = 0
+        super(RejectingExecutor, self).__init__(check_and_reject=self._reject)
+
+
+class TestRetrySubmission(base.TestCase):
+    def test_retry_submission(self):
+        called = []
+
+        def cb():
+            called.append(1)
+
+        callables = [
+            (every_one_sec, (cb,), None),
+            (every_half_sec, (cb,), None),
+        ]
+        w = periodics.PeriodicWorker(callables,
+                                     executor_factory=RejectingExecutor,
+                                     cond_cls=green_threading.Condition,
+                                     event_cls=green_threading.Event)
+        with create_destroy_green_thread(w.start):
+            eventlet.sleep(2.0)
+            w.stop()
+
+        am_called = sum(called)
+        self.assertGreaterEqual(am_called, 4)
