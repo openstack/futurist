@@ -294,6 +294,9 @@ def _build(now_func, callables, next_run_scheduler):
     return immediates, schedule
 
 
+_SCHEDULE_RETRY_EXCEPTIONS = (RuntimeError, futurist.RejectedSubmission)
+
+
 class PeriodicWorker(object):
     """Calls a collection of callables periodically (sleeping as needed...).
 
@@ -577,14 +580,22 @@ class PeriodicWorker(object):
                     cb, cb_name, args, kwargs = self._callables[index]
                     self._log.debug("Submitting periodic function '%s'",
                                     cb_name)
-                    fut = executor.submit(runner,
-                                          self._now_func,
-                                          cb, *args, **kwargs)
-                    fut.add_done_callback(functools.partial(_on_done,
-                                                            PERIODIC,
-                                                            cb, cb_name,
-                                                            index,
-                                                            submitted_at))
+                    try:
+                        fut = executor.submit(runner,
+                                              self._now_func,
+                                              cb, *args, **kwargs)
+                    except _SCHEDULE_RETRY_EXCEPTIONS as exc:
+                        self._log.error("Failed to submit periodic function "
+                                        "%s, retrying. Error: %s",
+                                        cb_name, exc)
+                        # Restart as soon as possible
+                        self._schedule.push(now, index)
+                    else:
+                        fut.add_done_callback(functools.partial(_on_done,
+                                                                PERIODIC,
+                                                                cb, cb_name,
+                                                                index,
+                                                                submitted_at))
                 else:
                     # Gotta wait...
                     self._schedule.push(next_run, index)
@@ -600,12 +611,20 @@ class PeriodicWorker(object):
                 cb, cb_name, args, kwargs = self._callables[index]
                 submitted_at = self._now_func()
                 self._log.debug("Submitting immediate function '%s'", cb_name)
-                fut = executor.submit(runner, self._now_func,
-                                      cb, *args, **kwargs)
-                fut.add_done_callback(functools.partial(_on_done,
-                                                        IMMEDIATE,
-                                                        cb, cb_name,
-                                                        index, submitted_at))
+                try:
+                    fut = executor.submit(runner, self._now_func,
+                                          cb, *args, **kwargs)
+                except _SCHEDULE_RETRY_EXCEPTIONS as exc:
+                    self._log.error("Failed to submit immediate function "
+                                    "%s, retrying. Error: %s", cb_name, exc)
+                    # Restart as soon as possible
+                    self._immediates.append(index)
+                else:
+                    fut.add_done_callback(functools.partial(_on_done,
+                                                            IMMEDIATE,
+                                                            cb, cb_name,
+                                                            index,
+                                                            submitted_at))
 
         def _on_done(kind, cb, cb_name, index, submitted_at, fut):
             started_at, finished_at, failure = fut.result()
