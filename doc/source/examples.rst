@@ -8,24 +8,67 @@ Creating and using a synchronous executor
 
 .. testcode::
 
-    import time
+    # NOTE: enable printing timestamp for additional data
 
+    import sys
     import futurist
+    import eventlet
 
     def delayed_func():
-        time.sleep(0.1)
-        return "hello"
+        print("started")
+        eventlet.sleep(3)
+        print("done")
 
+    #print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     e = futurist.SynchronousExecutor()
     fut = e.submit(delayed_func)
-    print(fut.result())
+    eventlet.sleep(1)
+    print("Hello")
+    eventlet.sleep(1)
     e.shutdown()
+    #print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
 **Expected output:**
 
 .. testoutput::
 
-    hello
+    started
+    done
+    Hello
+
+------------------------------------------------
+Creating and using a green thread-based executor
+------------------------------------------------
+
+.. testcode::
+
+    # NOTE: enable printing timestamp for additional data
+
+    import sys
+    import futurist
+    import eventlet
+
+    def delayed_func():
+        print("started")
+        eventlet.sleep(3)
+        print("done")
+
+    #print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    e = futurist.GreenThreadPoolExecutor()
+    fut = e.submit(delayed_func)
+    eventlet.sleep(1)
+    print("Hello")
+    eventlet.sleep(1)
+    e.shutdown()
+    #print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+**Expected output:**
+
+.. testoutput::
+
+    started
+    Hello
+    done
 
 
 ------------------------------------------
@@ -52,32 +95,6 @@ Creating and using a thread-based executor
 .. testoutput::
 
     hello
-
-------------------------------------------------
-Creating and using a green thread-based executor
-------------------------------------------------
-
-.. testcode::
-
-    import time
-
-    import futurist
-
-    def delayed_func():
-        time.sleep(0.1)
-        return "hello"
-
-    e = futurist.GreenThreadPoolExecutor()
-    fut = e.submit(delayed_func)
-    print(fut.result())
-    e.shutdown()
-
-**Expected output:**
-
-.. testoutput::
-
-    hello
-
 
 -------------------------------------------
 Creating and using a process-based executor
