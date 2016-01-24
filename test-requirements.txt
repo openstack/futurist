@@ -5,7 +5,7 @@
 hacking<0.11,>=0.10.0
 
 # Used for making sure the eventlet executors work.
-eventlet>=0.17.4 # MIT
+eventlet!=0.18.0,>=0.17.4 # MIT
 
 doc8 # Apache-2.0
 coverage>=3.6 # Apache-2.0
