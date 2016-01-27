@@ -26,6 +26,9 @@ from futurist import _green
 from futurist import _utils
 
 
+CancelledError = _futures.CancelledError
+
+
 class RejectedSubmission(Exception):
     """Exception raised when a submitted call is rejected (for some reason)."""
 
