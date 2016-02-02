@@ -288,7 +288,8 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
             (every_one_sec, (cb,), None),
             (every_half_sec, (cb,), None),
         ]
-        executor_factory = lambda: self.executor_cls(**self.executor_kwargs)
+        executor = self.executor_cls(**self.executor_kwargs)
+        executor_factory = lambda: executor
         w = periodics.PeriodicWorker(callables,
                                      executor_factory=executor_factory,
                                      **self.worker_kwargs)
@@ -298,6 +299,32 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
 
         am_called = sum(called)
         self.assertGreaterEqual(am_called, 4)
+
+        self.assertFalse(executor.alive)
+
+    def test_existing_executor(self):
+        called = []
+
+        def cb():
+            called.append(1)
+
+        callables = [
+            (every_one_sec, (cb,), None),
+            (every_half_sec, (cb,), None),
+        ]
+        executor = self.executor_cls(**self.executor_kwargs)
+        executor_factory = periodics.ExistingExecutor(executor)
+        w = periodics.PeriodicWorker(callables,
+                                     executor_factory=executor_factory,
+                                     **self.worker_kwargs)
+        with self.create_destroy(w.start):
+            self.sleep(2.0)
+            w.stop()
+
+        am_called = sum(called)
+        self.assertGreaterEqual(am_called, 4)
+
+        self.assertTrue(executor.alive)
 
     def test_create_with_arguments(self):
         m = mock.Mock()

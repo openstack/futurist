@@ -297,6 +297,28 @@ def _build(now_func, callables, next_run_scheduler):
 _SCHEDULE_RETRY_EXCEPTIONS = (RuntimeError, futurist.RejectedSubmission)
 
 
+class ExecutorFactory(object):
+    """Base class for any executor factory."""
+
+    shutdown = True
+    """Whether the executor should be shut down on periodic worker stop."""
+
+    def __call__(self):
+        """Return the executor to be used."""
+        raise NotImplementedError()
+
+
+class ExistingExecutor(ExecutorFactory):
+    """An executor factory returning the existing object."""
+
+    def __init__(self, executor, shutdown=False):
+        self._executor = executor
+        self.shutdown = shutdown
+
+    def __call__(self):
+        return self._executor
+
+
 class PeriodicWorker(object):
     """Calls a collection of callables periodically (sleeping as needed...).
 
@@ -390,7 +412,7 @@ class PeriodicWorker(object):
                                  provided one will be created that uses
                                  the :py:class:`~futurist.SynchronousExecutor`
                                  class)
-        :type executor_factory: callable
+        :type executor_factory: ExecutorFactory or any callable
         :param cond_cls: callable object that can
                           produce ``threading.Condition``
                           (or compatible/equivalent) objects
@@ -470,7 +492,7 @@ class PeriodicWorker(object):
                                  provided one will be created that uses
                                  the :py:class:`~futurist.SynchronousExecutor`
                                  class)
-        :type executor_factory: callable
+        :type executor_factory: ExecutorFactory or any callable
         :param cond_cls: callable object that can
                           produce ``threading.Condition``
                           (or compatible/equivalent) objects
@@ -743,7 +765,8 @@ class PeriodicWorker(object):
         try:
             self._run(executor, runner)
         finally:
-            executor.shutdown()
+            if getattr(self._executor_factory, 'shutdown', True):
+                executor.shutdown()
             self._dead.set()
             self._active.clear()
             self._on_finish()
