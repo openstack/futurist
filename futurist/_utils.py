@@ -17,6 +17,7 @@
 import inspect
 import multiprocessing
 import sys
+import threading
 import traceback
 
 from monotonic import monotonic as now  # noqa
@@ -116,3 +117,26 @@ def get_optimal_thread_count(default=2):
         # just setup two threads since it's hard to know what else we
         # should do in this situation.
         return default
+
+
+class Barrier(object):
+    """A class that ensures active <= 0 occur before unblocking."""
+
+    def __init__(self, cond_cls=threading.Condition):
+        self._active = 0
+        self._cond = cond_cls()
+
+    def incr(self):
+        with self._cond:
+            self._active += 1
+            self._cond.notify_all()
+
+    def decr(self):
+        with self._cond:
+            self._active -= 1
+            self._cond.notify_all()
+
+    def wait(self):
+        with self._cond:
+            while self._active > 0:
+                self._cond.wait()
