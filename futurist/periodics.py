@@ -618,7 +618,7 @@ class PeriodicWorker(object):
                         delay = (self._RESCHEDULE_DELAY +
                                  random().random() * self._RESCHEDULE_JITTER)
                         self._log.error("Failed to submit periodic function "
-                                        "%s, retrying after %.2f sec. "
+                                        "'%s', retrying after %.2f sec. "
                                         "Error: %s",
                                         cb_name, delay, exc)
                         self._schedule.push(self._now_func() + delay,
@@ -651,7 +651,7 @@ class PeriodicWorker(object):
                                           cb, *args, **kwargs)
                 except _SCHEDULE_RETRY_EXCEPTIONS as exc:
                     self._log.error("Failed to submit immediate function "
-                                    "%s, retrying. Error: %s", cb_name, exc)
+                                    "'%s', retrying. Error: %s", cb_name, exc)
                     # Restart as soon as possible
                     self._immediates.append(index)
                 else:
