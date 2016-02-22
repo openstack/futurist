@@ -18,6 +18,7 @@ import testscenarios
 from testtools import testcase
 
 import futurist
+from futurist import rejection
 from futurist.tests import base
 
 
@@ -137,3 +138,31 @@ class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
         self.assertEqual(10, len(happy_completed) + len(unhappy_completed))
         self.assertEqual(5, len(unhappy_completed))
         self.assertEqual(5, len(happy_completed))
+
+
+_REJECTION = rejection.reject_when_reached(1)
+
+
+class TestRejection(testscenarios.TestWithScenarios, base.TestCase):
+    scenarios = [
+        ('green', {'executor_cls': futurist.GreenThreadPoolExecutor,
+                   'executor_kwargs': {'check_and_reject': _REJECTION,
+                                       'max_workers': 1}}),
+        ('thread', {'executor_cls': futurist.ThreadPoolExecutor,
+                    'executor_kwargs': {'check_and_reject': _REJECTION,
+                                        'max_workers': 1}}),
+    ]
+
+    def setUp(self):
+        super(TestRejection, self).setUp()
+        self.executor = self.executor_cls(**self.executor_kwargs)
+
+    def test_rejection(self):
+        self.addCleanup(self.executor.shutdown)
+
+        # 1 worker + 1 item of backlog
+        for _i in range(2):
+            self.executor.submit(delayed, 0.5)
+
+        self.assertRaises(futurist.RejectedSubmission,
+                          self.executor.submit, returns_one)
