@@ -375,6 +375,8 @@ class TestRetrySubmission(base.TestCase):
                                      executor_factory=RejectingExecutor,
                                      cond_cls=green_threading.Condition,
                                      event_cls=green_threading.Event)
+        w._RESCHEDULE_DELAY = 0
+        w._RESCHEDULE_JITTER = 0
         with create_destroy_green_thread(w.start):
             eventlet.sleep(2.0)
             w.stop()

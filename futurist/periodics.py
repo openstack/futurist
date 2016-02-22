@@ -341,6 +341,10 @@ class PeriodicWorker(object):
         'successes': 0,
     }
 
+    # When scheduling fails temporary, use a random delay between 0.9-1.1 sec.
+    _RESCHEDULE_DELAY = 0.9
+    _RESCHEDULE_JITTER = 0.2
+
     DEFAULT_JITTER = fractions.Fraction(5, 100)
     """
     Default jitter percentage the built-in strategies (that have jitter
@@ -610,11 +614,15 @@ class PeriodicWorker(object):
                                               self._now_func,
                                               cb, *args, **kwargs)
                     except _SCHEDULE_RETRY_EXCEPTIONS as exc:
+                        # Restart after a short delay
+                        delay = (self._RESCHEDULE_DELAY +
+                                 random().random() * self._RESCHEDULE_JITTER)
                         self._log.error("Failed to submit periodic function "
-                                        "%s, retrying. Error: %s",
-                                        cb_name, exc)
-                        # Restart as soon as possible
-                        self._schedule.push(now, index)
+                                        "%s, retrying after %.2f sec. "
+                                        "Error: %s",
+                                        cb_name, delay, exc)
+                        self._schedule.push(self._now_func() + delay,
+                                            index)
                     else:
                         barrier.incr()
                         fut.add_done_callback(functools.partial(_on_done,
