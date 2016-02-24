@@ -21,10 +21,8 @@ import heapq
 import inspect
 import logging
 import math
+import random
 import threading
-
-# For: https://wiki.openstack.org/wiki/Security/Projects/Bandit
-from random import SystemRandom as random
 
 from concurrent import futures
 import six
@@ -167,12 +165,13 @@ def _add_jitter(max_percent_jitter):
                          " equal to 0.0 and less than or equal to 1.0")
 
     def wrapper(func):
+        rnd = random.SystemRandom()
 
         @six.wraps(func)
-        def decorator(cb, metrics, now=None):
-            next_run = func(cb, metrics, now=now)
+        def decorator(cb, started_at, finished_at, metrics):
+            next_run = func(cb, started_at, finished_at, metrics)
             how_often = cb._periodic_spacing
-            jitter = how_often * (random.random() * max_percent_jitter)
+            jitter = how_often * (rnd.random() * max_percent_jitter)
             return next_run + jitter
 
         decorator.__name__ += "_with_jitter"
@@ -583,6 +582,7 @@ class PeriodicWorker(object):
     def _run(self, executor, runner):
         """Main worker run loop."""
         barrier = utils.Barrier(cond_cls=self._cond_cls)
+        rnd = random.SystemRandom()
 
         def _process_scheduled():
             # Figure out when we should run next (by selecting the
@@ -616,7 +616,7 @@ class PeriodicWorker(object):
                     except _SCHEDULE_RETRY_EXCEPTIONS as exc:
                         # Restart after a short delay
                         delay = (self._RESCHEDULE_DELAY +
-                                 random().random() * self._RESCHEDULE_JITTER)
+                                 rnd.random() * self._RESCHEDULE_JITTER)
                         self._log.error("Failed to submit periodic function "
                                         "'%s', retrying after %.2f sec. "
                                         "Error: %s",
@@ -677,8 +677,7 @@ class PeriodicWorker(object):
             elapsed_waiting = max(0, started_at - submitted_at)
             cb_metrics['elapsed'] += elapsed
             cb_metrics['elapsed_waiting'] += elapsed_waiting
-            next_run = self._schedule_strategy(cb,
-                                               started_at, finished_at,
+            next_run = self._schedule_strategy(cb, started_at, finished_at,
                                                cb_metrics)
             with self._waiter:
                 self._schedule.push(next_run, index)
