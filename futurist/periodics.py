@@ -25,6 +25,7 @@ import random
 import threading
 
 from concurrent import futures
+import prettytable
 import six
 
 import futurist
@@ -34,6 +35,10 @@ LOG = logging.getLogger(__name__)
 
 _REQUIRED_ATTRS = ('_is_periodic', '_periodic_spacing',
                    '_periodic_run_immediately')
+
+_DEFAULT_COLS = ('Name', 'Active', 'Periodicity', 'Runs in',
+                 'Runs', 'Failures', 'Successes',
+                 'Average elapsed', 'Average elapsed waiting')
 
 # Constants that are used to determine what 'kind' the current callback
 # is being ran as.
@@ -229,6 +234,12 @@ class _Schedule(object):
 
     def __len__(self):
         return len(self._ordering)
+
+    def fetch_next_run(self, index):
+        for (next_run, a_index) in self._ordering:
+            if a_index == index:
+                return next_run
+        return None
 
     def pop(self):
         return heapq.heappop(self._ordering)
@@ -694,22 +705,63 @@ class PeriodicWorker(object):
         # TODO(harlowja): this may be to verbose for people?
         if not self._log.isEnabledFor(logging.DEBUG):
             return
-        watcher_it = self.iter_watchers()
-        for index, watcher in enumerate(watcher_it):
-            cb, cb_name, _args, _kwargs = self._callables[index]
-            self._log.debug("Stopped running callback[%s] '%s' periodically:",
-                            index, cb_name)
-            self._log.debug("  Periodicity = %ss", cb._periodic_spacing)
-            self._log.debug("  Runs = %s", watcher.runs)
-            self._log.debug("  Failures = %s", watcher.failures)
-            self._log.debug("  Successes = %s", watcher.successes)
+        cols = list(_DEFAULT_COLS)
+        for c in ['Runs in', 'Active', 'Periodicity']:
+            cols.remove(c)
+        self._log.debug("Stopped running %s callbacks:\n%s",
+                        len(self._callables), self.pformat(columns=cols))
+
+    def pformat(self, columns=_DEFAULT_COLS):
+        # Convert to a list to ensure we maintain the same order when used
+        # further in this function (since order will matter)...
+        if not isinstance(columns, (list, tuple)):
+            columns = list(columns)
+        if not columns:
+            raise ValueError("At least one of %s columns must"
+                             " be provided" % (set(_DEFAULT_COLS)))
+        for c in columns:
+            if c not in _DEFAULT_COLS:
+                raise ValueError("Unknown column '%s', valid column names"
+                                 " are %s" % (c, set(_DEFAULT_COLS)))
+        tbl_rows = []
+        now = self._now_func()
+        for index, (cb, cb_name, _args, _kwargs) in enumerate(self._callables):
+            _cb_metrics, watcher = self._watchers[index]
+            next_run = self._schedule.fetch_next_run(index)
+            if next_run is None:
+                active = True
+                runs_in = 'n/a'
+            else:
+                active = False
+                runs_in = "%0.4fs" % (max(0.0, next_run - now))
+            cb_row = {
+                'Name': cb_name,
+                'Active': active,
+                'Periodicity': cb._periodic_spacing,
+                'Runs': watcher.runs,
+                'Runs in': runs_in,
+                'Failures': watcher.failures,
+                'Successes': watcher.successes,
+            }
             try:
-                self._log.debug("  Average elapsed = %0.4fs",
-                                watcher.average_elapsed)
-                self._log.debug("  Average elapsed waiting = %0.4fs",
-                                watcher.average_elapsed_waiting)
+                cb_row_avgs = [
+                    "%0.4fs" % watcher.average_elapsed,
+                    "%0.4fs" % watcher.average_elapsed_waiting,
+                ]
             except ZeroDivisionError:
-                pass
+                cb_row_avgs = ['.', '.']
+            cb_row['Average elapsed'] = cb_row_avgs[0]
+            cb_row['Average elapsed waiting'] = cb_row_avgs[1]
+            tbl_rows.append(cb_row)
+        # Now form the table, but use only the columns that the caller
+        # asked for (and in the order they asked for...)
+        tbl = prettytable.PrettyTable(columns)
+        for cb_row in tbl_rows:
+            tbl_row = []
+            for c in columns:
+                tbl_row.append(cb_row[c])
+            tbl.add_row(tbl_row)
+        return tbl.get_string()
 
     def add(self, cb, *args, **kwargs):
         """Adds a new periodic callback to the current worker.
