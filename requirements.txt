@@ -7,4 +7,4 @@ six>=1.9.0 # MIT
 monotonic>=0.6 # Apache-2.0
 futures>=3.0;python_version=='2.7' or python_version=='2.6' # BSD
 contextlib2>=0.4.0 # PSF License
-PrettyTable>=0.7,<0.8 # BSD
+PrettyTable<0.8,>=0.7 # BSD
