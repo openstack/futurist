@@ -44,17 +44,26 @@ class WorkItem(object):
             return
         try:
             result = self.fn(*self.args, **self.kwargs)
-        except BaseException:
-            exc_type, exc_value, exc_tb = sys.exc_info()
+        except SystemExit as e:
             try:
-                if six.PY2:
-                    self.future.set_exception_info(exc_value, exc_tb)
-                else:
-                    self.future.set_exception(exc_value)
+                self.fail()
             finally:
-                del(exc_type, exc_value, exc_tb)
+                raise e
+        except BaseException:
+            self.fail()
         else:
             self.future.set_result(result)
+
+    def fail(self, exc_info=None):
+        exc_type, exc_value, exc_tb = exc_info or sys.exc_info()
+        try:
+            if six.PY2:
+                self.future.set_exception_info(exc_value, exc_tb)
+            else:
+                self.future.set_exception(exc_value)
+        finally:
+            if exc_info is None:
+                del exc_type, exc_value, exc_tb
 
 
 class Failure(object):

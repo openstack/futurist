@@ -13,6 +13,7 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+import sys
 
 from futurist import _utils
 
@@ -68,17 +69,33 @@ class GreenWorker(object):
         # Run our main piece of work.
         try:
             self.work.run()
-        finally:
-            # Consume any delayed work before finishing (this is how we finish
-            # work that was to big for the pool size, but needs to be finished
-            # no matter).
-            while True:
-                try:
-                    w = self.work_queue.get_nowait()
-                except greenqueue.Empty:
-                    break
-                else:
+        except SystemExit as e:
+            exc_info = sys.exc_info()
+            try:
+                while True:
                     try:
-                        w.run()
+                        w = self.work_queue.get_nowait()
+                    except greenqueue.Empty:
+                        break
+
+                    try:
+                        w.fail(exc_info)
                     finally:
                         self.work_queue.task_done()
+            finally:
+                del exc_info
+                raise e
+
+        # Consume any delayed work before finishing (this is how we finish
+        # work that was to big for the pool size, but needs to be finished
+        # no matter).
+        while True:
+            try:
+                w = self.work_queue.get_nowait()
+            except greenqueue.Empty:
+                break
+            else:
+                try:
+                    w.run()
+                finally:
+                    self.work_queue.task_done()

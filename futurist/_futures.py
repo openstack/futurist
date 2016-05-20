@@ -414,8 +414,8 @@ class GreenThreadPoolExecutor(_futures.Executor):
             else:
                 shutoff = False
         if wait and shutoff:
-            self._pool.waitall()
             self._delayed_work.join()
+            self._pool.waitall()
 
 
 class ExecutorStatistics(object):
