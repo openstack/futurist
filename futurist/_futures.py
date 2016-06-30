@@ -19,10 +19,12 @@ import threading
 
 from concurrent import futures as _futures
 from concurrent.futures import process as _process
-from concurrent.futures import thread as _thread
 import six
 
+from six.moves import queue as compat_queue
+
 from futurist import _green
+from futurist import _thread
 from futurist import _utils
 
 
@@ -35,25 +37,6 @@ class RejectedSubmission(Exception):
 
 # NOTE(harlowja): Allows for simpler access to this type...
 Future = _futures.Future
-
-
-class _Threading(object):
-
-    @staticmethod
-    def event_object(*args, **kwargs):
-        return threading.Event(*args, **kwargs)
-
-    @staticmethod
-    def lock_object(*args, **kwargs):
-        return threading.Lock(*args, **kwargs)
-
-    @staticmethod
-    def rlock_object(*args, **kwargs):
-        return threading.RLock(*args, **kwargs)
-
-    @staticmethod
-    def condition_object(*args, **kwargs):
-        return threading.Condition(*args, **kwargs)
 
 
 class _Gatherer(object):
@@ -116,7 +99,7 @@ class _Gatherer(object):
         return fut
 
 
-class ThreadPoolExecutor(_thread.ThreadPoolExecutor):
+class ThreadPoolExecutor(_futures.Executor):
     """Executor that uses a thread pool to execute calls asynchronously.
 
     It gathers statistics about the submissions executed for post-analysis...
@@ -124,13 +107,13 @@ class ThreadPoolExecutor(_thread.ThreadPoolExecutor):
     See: https://docs.python.org/dev/library/concurrent.futures.html
     """
 
-    threading = _Threading()
+    threading = _thread.Threading()
 
     def __init__(self, max_workers=None, check_and_reject=None):
         """Initializes a thread pool executor.
 
         :param max_workers: maximum number of workers that can be
-                            simulatenously active at the same time, further
+                            simultaneously active at the same time, further
                             submitted work will be queued up when this limit
                             is reached.
         :type max_workers: int
@@ -146,21 +129,15 @@ class ThreadPoolExecutor(_thread.ThreadPoolExecutor):
         """
         if max_workers is None:
             max_workers = _utils.get_optimal_thread_count()
-        super(ThreadPoolExecutor, self).__init__(max_workers=max_workers)
-        if self._max_workers <= 0:
+        if max_workers <= 0:
             raise ValueError("Max workers must be greater than zero")
-        # NOTE(harlowja): this replaces the parent classes non-reentrant lock
-        # with a reentrant lock so that we can correctly call into the check
-        # and reject lock, and that it will block correctly if another
-        # submit call is done during that...
+        self._max_workers = max_workers
+        self._work_queue = compat_queue.Queue()
         self._shutdown_lock = threading.RLock()
+        self._shutdown = False
+        self._workers = []
         self._check_and_reject = check_and_reject or (lambda e, waiting: None)
-        self._gatherer = _Gatherer(
-            # Since our submit will use this gatherer we have to reference
-            # the parent submit, bound to this instance (which is what we
-            # really want to use anyway).
-            super(ThreadPoolExecutor, self).submit,
-            self.threading.lock_object)
+        self._gatherer = _Gatherer(self._submit, self.threading.lock_object)
 
     @property
     def statistics(self):
@@ -171,6 +148,35 @@ class ThreadPoolExecutor(_thread.ThreadPoolExecutor):
     def alive(self):
         """Accessor to determine if the executor is alive/active."""
         return not self._shutdown
+
+    def _maybe_spin_up(self):
+        """Spin up a worker if needed."""
+        if (not self._workers or
+            (len(self._workers) < self._max_workers and not
+             # Do more advanced idle checks in the future....
+             any(w.idle for w in self._workers))):
+            w = _thread.ThreadWorker.create_and_register(
+                self, self._work_queue)
+            # Always save it before we start (so that even if we fail
+            # starting it we can correctly join on it).
+            self._workers.append(w)
+            w.start()
+
+    def shutdown(self, wait=True):
+        with self._shutdown_lock:
+            if not self._shutdown:
+                self._shutdown = True
+                for w in self._workers:
+                    w.stop()
+        if wait:
+            for w in self._workers:
+                _thread.join_thread(w)
+
+    def _submit(self, fn, *args, **kwargs):
+        f = Future()
+        self._maybe_spin_up()
+        self._work_queue.put(_utils.WorkItem(f, fn, args, kwargs))
+        return f
 
     def submit(self, fn, *args, **kwargs):
         """Submit some work to be executed (and gather statistics)."""
@@ -190,7 +196,7 @@ class ProcessPoolExecutor(_process.ProcessPoolExecutor):
     See: https://docs.python.org/dev/library/concurrent.futures.html
     """
 
-    threading = _Threading()
+    threading = _thread.Threading()
 
     def __init__(self, max_workers=None):
         if max_workers is None:
@@ -231,7 +237,7 @@ class SynchronousExecutor(_futures.Executor):
     It gathers statistics about the submissions executed for post-analysis...
     """
 
-    threading = _Threading()
+    threading = _thread.Threading()
 
     def __init__(self, green=False, run_work_func=lambda work: work.run()):
         """Synchronous executor constructor.
