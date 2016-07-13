@@ -151,10 +151,10 @@ class ThreadPoolExecutor(_futures.Executor):
 
     def _maybe_spin_up(self):
         """Spin up a worker if needed."""
+        # Do more advanced idle checks and/or reaping of very idle
+        # threads in the future....
         if (not self._workers or
-            (len(self._workers) < self._max_workers and not
-             # Do more advanced idle checks in the future....
-             any(w.idle for w in self._workers))):
+                len(self._workers) < self._max_workers):
             w = _thread.ThreadWorker.create_and_register(
                 self, self._work_queue)
             # Always save it before we start (so that even if we fail
