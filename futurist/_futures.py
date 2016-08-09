@@ -314,7 +314,7 @@ class GreenFuture(Future):
         # functions will correctly yield to eventlet. If this is not done then
         # waiting on the future never actually causes the greenthreads to run
         # and thus you wait for infinity.
-        if not _green.is_monkey_patched('threading'):
+        if not _green.is_monkey_patched('thread'):
             self._condition = _green.threading.condition_object()
 
 
