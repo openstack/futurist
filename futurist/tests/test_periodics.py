@@ -117,6 +117,38 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
         schedule_order = w._schedule._ordering
         self.assertEqual([(expected_next, 0)], schedule_order)
 
+    def _run_work_up_to(self, stop_after_num_calls):
+        ev = self.event_cls()
+        called_tracker = []
+
+        @periodics.periodic(0.1, run_immediately=True)
+        def fast_periodic():
+            called_tracker.append(True)
+            if len(called_tracker) >= stop_after_num_calls:
+                ev.set()
+
+        callables = [
+            (fast_periodic, None, None),
+        ]
+
+        worker_kwargs = self.worker_kwargs.copy()
+        w = periodics.PeriodicWorker(callables, **worker_kwargs)
+
+        with self.create_destroy(w.start):
+            ev.wait()
+            w.stop()
+
+        return list(w.iter_watchers())[0], fast_periodic
+
+    def test_watching_work(self):
+        for i in [3, 5, 9, 11]:
+            watcher, cb = self._run_work_up_to(i)
+            self.assertEqual(cb, watcher.work.callback)
+            self.assertGreaterEqual(i, watcher.runs)
+            self.assertGreaterEqual(i, watcher.successes)
+            self.assertEqual((), watcher.work.args)
+            self.assertEqual({}, watcher.work.kwargs)
+
     def test_last_finished_strategy(self):
         last_now = 3.2
         nows = [
