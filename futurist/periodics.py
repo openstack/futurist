@@ -714,7 +714,7 @@ class PeriodicWorker(object):
         for c in ['Runs in', 'Active', 'Periodicity']:
             cols.remove(c)
         self._log.debug("Stopped running %s callbacks:\n%s",
-                        len(self._callables), self.pformat(columns=cols))
+                        len(self._works), self.pformat(columns=cols))
 
     def pformat(self, columns=_DEFAULT_COLS):
         # Convert to a list to ensure we maintain the same order when used
