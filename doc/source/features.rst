@@ -24,7 +24,7 @@ Periodics
 
 * A :py:class:`.futurist.periodics.PeriodicWorker` that can use the previously
   mentioned executors to run asynchronous work periodically in parallel
-  or synchronously. It does this by executing arbitary functions/methods
+  or synchronously. It does this by executing arbitrary functions/methods
   that have been decorated with the :py:func:`.futurist.periodics.periodic`
   decorator according to a internally maintained schedule (which itself is
   based on the `heap`_ algorithm).
