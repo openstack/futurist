@@ -14,6 +14,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import contextlib
 import inspect
 import multiprocessing
 import sys
@@ -85,6 +86,14 @@ class Failure(object):
         finally:
             del exc_info
 
+    @property
+    def exc_type(self):
+        return self.exc_info[0]
+
+    @property
+    def exc_value(self):
+        return self.exc_info[1]
+
 
 def get_callback_name(cb):
     """Tries to get a callbacks fully-qualified name.
@@ -137,10 +146,23 @@ class Barrier(object):
         self._active = 0
         self._cond = cond_cls()
 
+    @property
+    def active(self):
+        return self._active
+
     def incr(self):
         with self._cond:
             self._active += 1
             self._cond.notify_all()
+
+    @contextlib.contextmanager
+    def decr_cm(self):
+        with self._cond:
+            self._active -= 1
+            try:
+                yield self._active
+            finally:
+                self._cond.notify_all()
 
     def decr(self):
         with self._cond:

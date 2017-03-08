@@ -33,11 +33,21 @@ from futurist import _utils as utils
 
 LOG = logging.getLogger(__name__)
 
+
+class NeverAgain(Exception):
+    """Exception to raise to stop further periodic calls for a function.
+
+    When you want a function never run again you can throw this from
+    you periodic function and that will signify to the execution framework
+    to remove that function (and never run it again).
+    """
+
+
 _REQUIRED_ATTRS = ('_is_periodic', '_periodic_spacing',
                    '_periodic_run_immediately')
 
 _DEFAULT_COLS = ('Name', 'Active', 'Periodicity', 'Runs in',
-                 'Runs', 'Failures', 'Successes',
+                 'Runs', 'Failures', 'Successes', 'Stop Requested',
                  'Average elapsed', 'Average elapsed waiting')
 
 # Constants that are used to determine what 'kind' the current callback
@@ -66,6 +76,11 @@ class Watcher(object):
                 " object at 0x%(ident)x>") % dict(ident=id(self),
                                                   work=self._work,
                                                   metrics=self._metrics)
+
+    @property
+    def requested_stop(self):
+        """If the work unit being ran has requested to be stopped."""
+        return self._metrics['requested_stop']
 
     @property
     def work(self):
@@ -343,6 +358,7 @@ class PeriodicWorker(object):
         'elapsed_waiting': 0,
         'failures': 0,
         'successes': 0,
+        'requested_stop': False,
     }
 
     # When scheduling fails temporary, use a random delay between 0.9-1.1 sec.
@@ -591,7 +607,7 @@ class PeriodicWorker(object):
         """How many callables/periodic work units are currently active."""
         return len(self._works)
 
-    def _run(self, executor, runner):
+    def _run(self, executor, runner, auto_stop_when_empty):
         """Main worker run loop."""
         barrier = utils.Barrier(cond_cls=self._cond_cls)
         rnd = random.SystemRandom()
@@ -639,7 +655,6 @@ class PeriodicWorker(object):
                                                                 PERIODIC,
                                                                 work, index,
                                                                 submitted_at))
-                        fut.add_done_callback(lambda _fut: barrier.decr())
                 else:
                     # Gotta wait...
                     self._schedule.push(next_run, index)
@@ -647,56 +662,76 @@ class PeriodicWorker(object):
                     self._waiter.wait(when_next)
 
         def _process_immediates():
-            try:
-                index = self._immediates.popleft()
-            except IndexError:
-                pass
-            else:
-                work = self._works[index]
-                submitted_at = self._now_func()
-                self._log.debug("Submitting immediate"
-                                " callback '%s'", work.name)
+            with self._waiter:
                 try:
-                    fut = executor.submit(runner.run, work)
-                except _SCHEDULE_RETRY_EXCEPTIONS as exc:
-                    self._log.error("Failed to submit immediate callback "
-                                    "'%s', retrying. Error: %s", work.name,
-                                    exc)
-                    # Restart as soon as possible
-                    self._immediates.append(index)
+                    index = self._immediates.popleft()
+                except IndexError:
+                    pass
                 else:
-                    barrier.incr()
-                    fut.add_done_callback(functools.partial(_on_done,
-                                                            IMMEDIATE,
-                                                            work, index,
-                                                            submitted_at))
-                    fut.add_done_callback(lambda _fut: barrier.decr())
+                    work = self._works[index]
+                    submitted_at = self._now_func()
+                    self._log.debug("Submitting immediate"
+                                    " callback '%s'", work.name)
+                    try:
+                        fut = executor.submit(runner.run, work)
+                    except _SCHEDULE_RETRY_EXCEPTIONS as exc:
+                        self._log.error("Failed to submit immediate callback "
+                                        "'%s', retrying. Error: %s", work.name,
+                                        exc)
+                        # Restart as soon as possible
+                        self._immediates.append(index)
+                    else:
+                        barrier.incr()
+                        fut.add_done_callback(functools.partial(_on_done,
+                                                                IMMEDIATE,
+                                                                work, index,
+                                                                submitted_at))
 
         def _on_done(kind, work, index, submitted_at, fut):
             cb = work.callback
             started_at, finished_at, failure = fut.result()
             cb_metrics, _watcher = self._watchers[index]
             cb_metrics['runs'] += 1
+            schedule_again = True
             if failure is not None:
-                cb_metrics['failures'] += 1
-                try:
-                    self._on_failure(cb, kind, cb._periodic_spacing,
-                                     failure.exc_info,
-                                     traceback=failure.traceback)
-                except Exception as exc:
-                    self._log.error("On failure callback %r raised an"
-                                    " unhandled exception. Error: %s",
-                                    self._on_failure, exc)
+                if not issubclass(failure.exc_type, NeverAgain):
+                    cb_metrics['failures'] += 1
+                    try:
+                        self._on_failure(cb, kind, cb._periodic_spacing,
+                                         failure.exc_info,
+                                         traceback=failure.traceback)
+                    except Exception as exc:
+                        self._log.error("On failure callback %r raised an"
+                                        " unhandled exception. Error: %s",
+                                        self._on_failure, exc)
+                else:
+                    cb_metrics['successes'] += 1
+                    schedule_again = False
+                    self._log.debug("Periodic callback '%s' raised "
+                                    "'NeverAgain' "
+                                    "exception, stopping any further "
+                                    "execution of it.", work.name)
             else:
                 cb_metrics['successes'] += 1
             elapsed = max(0, finished_at - started_at)
             elapsed_waiting = max(0, started_at - submitted_at)
             cb_metrics['elapsed'] += elapsed
             cb_metrics['elapsed_waiting'] += elapsed_waiting
-            next_run = self._schedule_strategy(cb, started_at, finished_at,
-                                               cb_metrics)
             with self._waiter:
-                self._schedule.push(next_run, index)
+                with barrier.decr_cm() as am_left:
+                    if schedule_again:
+                        next_run = self._schedule_strategy(cb, started_at,
+                                                           finished_at,
+                                                           cb_metrics)
+                        self._schedule.push(next_run, index)
+                    else:
+                        cb_metrics['requested_stop'] = True
+                        if (am_left <= 0 and
+                                len(self._immediates) == 0 and
+                                len(self._schedule) == 0 and
+                                auto_stop_when_empty):
+                            # Guess nothing left to do, goodbye...
+                            self._tombstone.set()
                 self._waiter.notify_all()
 
         try:
@@ -733,7 +768,10 @@ class PeriodicWorker(object):
         for index, work in enumerate(self._works):
             _cb_metrics, watcher = self._watchers[index]
             next_run = self._schedule.fetch_next_run(index)
-            if next_run is None:
+            if watcher.requested_stop:
+                active = False
+                runs_in = 'n/a'
+            elif next_run is None:
                 active = True
                 runs_in = 'n/a'
             else:
@@ -747,6 +785,7 @@ class PeriodicWorker(object):
                 'Runs in': runs_in,
                 'Failures': watcher.failures,
                 'Successes': watcher.successes,
+                'Stop Requested': watcher.requested_stop,
             }
             try:
                 cb_row_avgs = [
@@ -803,7 +842,7 @@ class PeriodicWorker(object):
             self._waiter.notify_all()
             return watcher
 
-    def start(self, allow_empty=False):
+    def start(self, allow_empty=False, auto_stop_when_empty=False):
         """Starts running (will not return until :py:meth:`.stop` is called).
 
         :param allow_empty: instead of running with no callbacks raise when
@@ -814,6 +853,16 @@ class PeriodicWorker(object):
                             sleep (until either stopped or callbacks are
                             added)
         :type allow_empty: bool
+        :param auto_stop_when_empty: when the provided periodic functions have
+                                     all exited and this is false then the
+                                     thread responsible for executing those
+                                     methods will just spin/idle waiting for
+                                     a new periodic function to be added;
+                                     switching it to true will make this
+                                     idling not happen (and instead when no
+                                     more periodic work exists then the
+                                     calling thread will just return).
+        :type auto_stop_when_empty: bool
         """
         if not self._works and not allow_empty:
             raise RuntimeError("A periodic worker can not start"
@@ -836,7 +885,7 @@ class PeriodicWorker(object):
         self._dead.clear()
         self._active.set()
         try:
-            self._run(executor, runner)
+            self._run(executor, runner, auto_stop_when_empty)
         finally:
             if getattr(self._executor_factory, 'shutdown', True):
                 executor.shutdown()
