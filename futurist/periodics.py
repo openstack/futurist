@@ -164,7 +164,7 @@ def periodic(spacing, run_immediately=False, enabled=True):
     :type enabled: boolean
     """
 
-    if spacing <= 0:
+    if spacing <= 0 and enabled:
         raise ValueError("Periodicity/spacing must be greater than"
                          " zero instead of %s" % spacing)
 

@@ -323,6 +323,19 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
         self.assertIsNotNone(w.add(add_me))
         self.assertEqual(1, len(w))
 
+    def test_interval_checking(self):
+
+        @periodics.periodic(-0.5, enabled=False)
+        def no_add_me():
+            pass
+
+        w = periodics.PeriodicWorker([], **self.worker_kwargs)
+        self.assertEqual(0, len(w))
+        self.assertIsNone(w.add(no_add_me))
+        self.assertEqual(0, len(w))
+
+        self.assertRaises(ValueError, periodics.periodic, -0.5)
+
     def test_is_periodic(self):
 
         @periodics.periodic(0.5, enabled=False)
