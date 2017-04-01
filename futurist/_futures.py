@@ -28,6 +28,7 @@ from futurist import _thread
 from futurist import _utils
 
 
+TimeoutError = _futures.TimeoutError
 CancelledError = _futures.CancelledError
 
 
