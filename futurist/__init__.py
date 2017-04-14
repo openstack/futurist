@@ -20,6 +20,7 @@ from futurist._futures import Future  # noqa
 from futurist._futures import GreenFuture  # noqa
 
 from futurist._futures import CancelledError  # noqa
+from futurist._futures import TimeoutError  # noqa
 
 from futurist._futures import GreenThreadPoolExecutor  # noqa
 from futurist._futures import ProcessPoolExecutor  # noqa
