@@ -6,19 +6,10 @@ Code from the future, delivered to you in the **now**.
 .. toctree::
    :maxdepth: 2
 
-   features
-   api
-   installation
-   examples
-   contributing
-
-History
-=======
-
-.. toctree::
-   :maxdepth: 2
-
-   history
+   user/index
+   reference/index
+   install/index
+   contributor/index
 
 Indices and tables
 ==================
