@@ -26,6 +26,6 @@ executed. This library currently adds statistics gathering, an eventlet
 executor, a synchronous executor etc.
 
 * Free software: Apache license
-* Documentation: http://docs.openstack.org/developer/futurist
-* Source: http://git.openstack.org/cgit/openstack/futurist
-* Bugs: http://bugs.launchpad.net/futurist
+* Documentation: https://docs.openstack.org/futurist/latest/
+* Source: https://git.openstack.org/cgit/openstack/futurist
+* Bugs: https://bugs.launchpad.net/futurist
