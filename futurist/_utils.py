@@ -128,14 +128,19 @@ def get_callback_name(cb):
         return ".".join(segments)
 
 
-def get_optimal_thread_count(default=2):
+def get_optimal_thread_count(default=5):
     """Try to guess optimal thread count for current system."""
     try:
-        return multiprocessing.cpu_count() + 1
+        return multiprocessing.cpu_count() * 5
     except NotImplementedError:
-        # NOTE(harlowja): apparently may raise so in this case we will
-        # just setup two threads since it's hard to know what else we
-        # should do in this situation.
+        return default
+
+
+def get_optimal_process_count(default=1):
+    """Try to guess optimal process count for current system."""
+    try:
+        return multiprocessing.cpu_count()
+    except NotImplementedError:
         return default
 
 

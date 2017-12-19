@@ -201,7 +201,7 @@ class ProcessPoolExecutor(_process.ProcessPoolExecutor):
 
     def __init__(self, max_workers=None):
         if max_workers is None:
-            max_workers = _utils.get_optimal_thread_count()
+            max_workers = _utils.get_optimal_process_count()
         super(ProcessPoolExecutor, self).__init__(max_workers=max_workers)
         if self._max_workers <= 0:
             raise ValueError("Max workers must be greater than zero")
