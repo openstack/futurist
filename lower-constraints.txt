@@ -11,8 +11,9 @@ eventlet==0.18.2
 extras==1.0.0
 fixtures==3.0.0
 flake8==2.2.4
+futures==3.0.0;python_version=='2.7' or python_version=='2.6' # BSD
 greenlet==0.4.10
-hacking==0.10.3
+hacking==0.10.0
 imagesize==0.7.1
 iso8601==0.1.11
 Jinja2==2.10
@@ -28,7 +29,7 @@ os-client-config==1.28.0
 oslotest==3.2.0
 pbr==2.0.0
 pep8==1.5.7
-prettytable==0.7.2
+prettytable==0.7.1
 pyflakes==0.8.1
 Pygments==2.2.0
 python-mimeparse==1.6.0
@@ -41,7 +42,7 @@ requestsexceptions==1.2.0
 restructuredtext-lint==1.1.1
 six==1.10.0
 snowballstemmer==1.2.1
-Sphinx==1.6.5
+Sphinx==1.6.2
 sphinxcontrib-websupport==1.0.1
 stevedore==1.20.0
 testrepository==0.0.18
