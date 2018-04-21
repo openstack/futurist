@@ -12,11 +12,11 @@ Futurist
 ========
 
 .. image:: https://img.shields.io/pypi/v/futurist.svg
-    :target: https://pypi.python.org/pypi/futurist/
+    :target: https://pypi.org/project/futurist/
     :alt: Latest Version
 
 .. image:: https://img.shields.io/pypi/dm/futurist.svg
-    :target: https://pypi.python.org/pypi/futurist/
+    :target: https://pypi.org/project/futurist/
     :alt: Downloads
 
 Code from the future, delivered to you in the **now**. The goal of this library
