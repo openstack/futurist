@@ -21,7 +21,12 @@ import sys
 import threading
 import traceback
 
-from monotonic import monotonic as now  # noqa
+try:
+    from monotonic import monotonic as now  # noqa
+except ImportError:
+    import time
+    now = time.monotonic
+
 import six
 
 try:
