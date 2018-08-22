@@ -83,7 +83,7 @@ class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
         self.assertEqual(3, self.executor.statistics.executed)
         self.assertEqual(1, self.executor.statistics.failures)
         self.assertGreaterEqual(self.executor.statistics.runtime,
-                                # It appears that the the thread run loop
+                                # It appears that the thread run loop
                                 # may call this before 0.2 seconds (or 0.2
                                 # will not be represented as a float correctly)
                                 # is really up so accommodate for that
