@@ -30,3 +30,4 @@ executor, a synchronous executor etc.
 * Source: https://opendev.org/openstack/futurist
 * Bugs: https://bugs.launchpad.net/futurist
 * Blueprints: https://blueprints.launchpad.net/futurist
+* Release notes: https://docs.openstack.org/releasenotes/futurist
