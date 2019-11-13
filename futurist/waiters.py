@@ -187,7 +187,8 @@ def _wait_for_all_green(fs, timeout=None):
                                              len(not_done))
     waiter.event.wait(timeout)
     for f in not_done:
-        f._waiters.remove(waiter)
+        with f._condition:
+            f._waiters.remove(waiter)
 
     with _acquire_and_release_futures(fs):
         done, not_done = _partition_futures(fs)
@@ -207,7 +208,8 @@ def _wait_for_any_green(fs, timeout=None):
 
     waiter.event.wait(timeout)
     for f in fs:
-        f._waiters.remove(waiter)
+        with f._condition:
+            f._waiters.remove(waiter)
 
     with _acquire_and_release_futures(fs):
         done, not_done = _partition_futures(fs)
