@@ -25,7 +25,10 @@ import random
 import threading
 
 from concurrent import futures
-import prettytable
+try:
+    import prettytable
+except ImportError:
+    prettytable = None
 import six
 
 import futurist
@@ -748,10 +751,17 @@ class PeriodicWorker(object):
         cols = list(_DEFAULT_COLS)
         for c in ['Runs in', 'Active', 'Periodicity']:
             cols.remove(c)
-        self._log.debug("Stopped running %s callbacks:\n%s",
-                        len(self._works), self.pformat(columns=cols))
+        self._log.debug(
+            "Stopped running %s callbacks:\n%s",
+            len(self._works),
+            self.pformat(columns=cols) if prettytable
+            else "statistics not available, PrettyTable missing"
+        )
 
     def pformat(self, columns=_DEFAULT_COLS):
+        if prettytable is None:
+            raise ImportError(
+                "PrettyTable is required to use the pformat method")
         # Convert to a list to ensure we maintain the same order when used
         # further in this function (since order will matter)...
         if not isinstance(columns, (list, tuple)):

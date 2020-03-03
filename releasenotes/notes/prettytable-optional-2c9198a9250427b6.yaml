@@ -1,0 +1,7 @@
+---
+upgrade:
+  - |
+    The ``PrettyTable`` dependency has been made optional, as it
+    is only used in the `Periodics.pformat` method. If the use
+    of that method is important, users should depend on
+    ``PrettyTable`` directly.
