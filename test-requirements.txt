@@ -2,7 +2,7 @@
 # of appearance. Changing the order has an impact on the overall integration
 # process, which may cause wedges in the gate later.
 
-hacking<0.11,>=0.10.0
+hacking>=3.0,<3.1.0 # Apache-2.0
 
 # Used for making sure the eventlet executors work.
 eventlet!=0.18.3,!=0.20.1,>=0.18.2 # MIT
