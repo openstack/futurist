@@ -16,10 +16,10 @@ import contextlib
 import functools
 import threading
 import time
+from unittest import mock
 
 import eventlet
 from eventlet.green import threading as green_threading
-import mock
 import testscenarios
 
 import futurist
