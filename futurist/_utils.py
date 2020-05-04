@@ -19,15 +19,12 @@ import inspect
 import multiprocessing
 import sys
 import threading
+from time import monotonic
 import traceback
 
-try:
-    from monotonic import monotonic as now  # noqa
-except ImportError:
-    import time
-    now = time.monotonic
-
 import six
+
+now = monotonic
 
 try:
     import eventlet as _eventlet  # noqa
