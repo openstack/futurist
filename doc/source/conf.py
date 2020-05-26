@@ -27,9 +27,10 @@ extensions = [
 ]
 
 # openstackdocstheme options
-repository_name = 'openstack/futurist'
-bug_project = 'futurist'
-bug_tag = ''
+openstackdocs_repo_name = 'openstack/futurist'
+openstackdocs_auto_name = False
+openstackdocs_bug_project = 'futurist'
+openstackdocs_bug_tag = ''
 
 # autodoc generation is a bit aggressive and a nuisance when doing heavy
 # text edit cycles.
@@ -53,7 +54,7 @@ add_function_parentheses = True
 add_module_names = True
 
 # The name of the Pygments (syntax highlighting) style to use.
-pygments_style = 'sphinx'
+pygments_style = 'native'
 
 # -- Options for HTML output --------------------------------------------------
 
