@@ -3,7 +3,7 @@
 # code from running in developer's machines.  To update to a
 # newer version, run `pre-commit autoupdate` and then replace
 # the newer versions with their commit hash.
-
+---
 default_language_version:
   python: python3
 
@@ -28,7 +28,7 @@ repos:
       - id: check-yaml
         files: .*\.(yaml|yml)$
   - repo: https://gitlab.com/pycqa/flake8
-    rev: 181bb46098dddf7e2d45319ea654b4b4d58c2840 # 3.8.3
+    rev: ee2920d775df18481d638c2da084d229d56f95b9  # 3.7.9
     hooks:
       - id: flake8
         additional_dependencies:
