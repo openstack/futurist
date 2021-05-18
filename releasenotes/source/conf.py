@@ -57,7 +57,7 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-copyright = u'2016, futurist Developers'
+copyright = '2016, futurist Developers'
 
 # Release notes do not need a version number in the title, they
 # cover multiple releases.
@@ -193,8 +193,8 @@ htmlhelp_basename = 'futuristReleaseNotesDoc'
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
     ('index', 'futuristReleaseNotes.tex',
-     u'futurist Release Notes Documentation',
-     u'futurist Developers', 'manual'),
+     'futurist Release Notes Documentation',
+     'futurist Developers', 'manual'),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
@@ -224,8 +224,8 @@ latex_documents = [
 # (source start file, name, description, authors, manual section).
 man_pages = [
     ('index', 'futuristReleaseNotes',
-     u'futurist Release Notes Documentation',
-     [u'futurist Developers'], 1)
+     'futurist Release Notes Documentation',
+     ['futurist Developers'], 1)
 ]
 
 # If true, show URL addresses after external links.
@@ -239,8 +239,8 @@ man_pages = [
 #  dir menu entry, description, category)
 texinfo_documents = [
     ('index', 'futuristReleaseNotes',
-     u'futurist Release Notes Documentation',
-     u'futurist Developers', 'futuristReleaseNotes',
+     'futurist Release Notes Documentation',
+     'futurist Developers', 'futuristReleaseNotes',
      'One line description of project.',
      'Miscellaneous'),
 ]
