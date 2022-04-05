@@ -21,10 +21,10 @@ except ImportError:
 
 import collections
 import contextlib
+import functools
 
 from concurrent import futures
 from concurrent.futures import _base
-import six
 
 import futurist
 from futurist import _utils
@@ -60,7 +60,7 @@ def _acquire_and_release_futures(fs):
 def _ensure_eventlet(func):
     """Decorator that verifies we have the needed eventlet components."""
 
-    @six.wraps(func)
+    @functools.wraps(func)
     def wrapper(*args, **kwargs):
         if not _utils.EVENTLET_AVAILABLE or greenthreading is None:
             raise RuntimeError('Eventlet is needed to wait on green futures')

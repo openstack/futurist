@@ -22,8 +22,6 @@ import threading
 from time import monotonic
 import traceback
 
-import six
-
 now = monotonic
 
 try:
@@ -60,10 +58,7 @@ class WorkItem(object):
     def fail(self, exc_info=None):
         exc_type, exc_value, exc_tb = exc_info or sys.exc_info()
         try:
-            if six.PY2:
-                self.future.set_exception_info(exc_value, exc_tb)
-            else:
-                self.future.set_exception(exc_value)
+            self.future.set_exception(exc_value)
         finally:
             if exc_info is None:
                 del exc_type, exc_value, exc_tb

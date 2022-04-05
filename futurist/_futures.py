@@ -15,13 +15,11 @@
 #    under the License.
 
 import functools
+import queue
 import threading
 
 from concurrent import futures as _futures
 from concurrent.futures import process as _process
-import six
-
-from six.moves import queue as compat_queue
 
 from futurist import _green
 from futurist import _thread
@@ -133,7 +131,7 @@ class ThreadPoolExecutor(_futures.Executor):
         if max_workers <= 0:
             raise ValueError("Max workers must be greater than zero")
         self._max_workers = max_workers
-        self._work_queue = compat_queue.Queue()
+        self._work_queue = queue.Queue()
         self._shutdown_lock = threading.RLock()
         self._shutdown = False
         self._workers = []
@@ -171,7 +169,7 @@ class ThreadPoolExecutor(_futures.Executor):
                     w.stop()
         if wait:
             for w in self._workers:
-                _thread.join_thread(w)
+                w.join()
 
     def _submit(self, fn, *args, **kwargs):
         f = Future()
@@ -254,7 +252,7 @@ class SynchronousExecutor(_futures.Executor):
         if green and not _utils.EVENTLET_AVAILABLE:
             raise RuntimeError('Eventlet is needed to use a green'
                                ' synchronous executor')
-        if not six.callable(run_work_func):
+        if not callable(run_work_func):
             raise ValueError("Run work parameter expected to be callable")
         self._run_work_func = run_work_func
         self._shutoff = False

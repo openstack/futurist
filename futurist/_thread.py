@@ -13,12 +13,9 @@
 #    under the License.
 
 import atexit
-import sys
+import queue
 import threading
 import weakref
-
-import six
-from six.moves import queue as compat_queue
 
 
 class Threading(object):
@@ -42,16 +39,6 @@ class Threading(object):
 
 _to_be_cleaned = weakref.WeakKeyDictionary()
 _dying = False
-
-
-if six.PY2:
-    # This ensures joining responds to keyboard interrupts.
-    join_thread = lambda thread: thread.join(sys.maxint)
-else:
-    # Not needed on py3 or newer...
-    join_thread = lambda thread: thread.join()
-
-
 _TOMBSTONE = object()
 
 
@@ -97,7 +84,7 @@ class ThreadWorker(threading.Thread):
         while work is None:
             try:
                 work = self.work_queue.get(True, self.MAX_IDLE_FOR)
-            except compat_queue.Empty:
+            except queue.Empty:
                 if self._is_dying():
                     work = _TOMBSTONE
         self.idle = False
@@ -138,7 +125,7 @@ def _clean_up():
     while threads_to_wait_for:
         worker = threads_to_wait_for.pop()
         try:
-            join_thread(worker)
+            worker.join()
         finally:
             del worker
 

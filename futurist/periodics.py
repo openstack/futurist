@@ -29,7 +29,6 @@ try:
     import prettytable
 except ImportError:
     prettytable = None
-import six
 
 import futurist
 from futurist import _utils as utils
@@ -176,7 +175,7 @@ def periodic(spacing, run_immediately=False, enabled=True):
         f._periodic_spacing = spacing
         f._periodic_run_immediately = run_immediately
 
-        @six.wraps(f)
+        @functools.wraps(f)
         def decorator(*args, **kwargs):
             return f(*args, **kwargs)
 
@@ -198,7 +197,7 @@ def _add_jitter(max_percent_jitter):
     def wrapper(func):
         rnd = random.SystemRandom()
 
-        @six.wraps(func)
+        @functools.wraps(func)
         def decorator(cb, started_at, finished_at, metrics):
             next_run = func(cb, started_at, finished_at, metrics)
             how_often = cb._periodic_spacing
@@ -485,7 +484,7 @@ class PeriodicWorker(object):
             for (name, member) in inspect.getmembers(obj):
                 if name.startswith("_") and exclude_hidden:
                     continue
-                if six.callable(member):
+                if callable(member):
                     missing_attrs = _check_attrs(member)
                     if not missing_attrs:
                         callables.append((member, args, kwargs))
@@ -557,7 +556,7 @@ class PeriodicWorker(object):
                            exceptions on being called)
         :type on_failure: callable
         """
-        if on_failure is not None and not six.callable(on_failure):
+        if on_failure is not None and not callable(on_failure):
             raise ValueError("On failure callback %r must be"
                              " callable" % on_failure)
         self._tombstone = event_cls()
@@ -568,7 +567,7 @@ class PeriodicWorker(object):
         self._watchers = []
         self._works = []
         for (cb, args, kwargs) in callables:
-            if not six.callable(cb):
+            if not callable(cb):
                 raise ValueError("Periodic callback %r must be callable" % cb)
             missing_attrs = _check_attrs(cb)
             if missing_attrs:
@@ -828,7 +827,7 @@ class PeriodicWorker(object):
                    with the :py:func:`.periodic` decorator
         :type cb: callable
         """
-        if not six.callable(cb):
+        if not callable(cb):
             raise ValueError("Periodic callback %r must be callable" % cb)
         missing_attrs = _check_attrs(cb)
         if missing_attrs:
@@ -919,7 +918,7 @@ class PeriodicWorker(object):
         self._tombstone.clear()
         self._dead.clear()
         for cb_metrics, _watcher in self._watchers:
-            for k in list(six.iterkeys(cb_metrics)):
+            for k in list(cb_metrics):
                 # NOTE(harlowja): mutate the original dictionaries keys
                 # so that the watcher (which references the same dictionary
                 # keys) is able to see those changes.
