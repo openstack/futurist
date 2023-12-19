@@ -1,7 +1,7 @@
 [run]
 branch = True
 source = futurist
-omit = futurist/tests/*,futurist/openstack/*
+omit = futurist/tests/*
 
 [report]
 ignore_errors = True
