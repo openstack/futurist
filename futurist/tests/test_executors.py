@@ -12,10 +12,10 @@
 
 import threading
 import time
+import unittest
 
 from eventlet.green import threading as green_threading
 import testscenarios
-from testtools import testcase
 
 import futurist
 from futurist import rejection
@@ -95,7 +95,7 @@ class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
 
     def test_restartable(self):
         if not self.restartable:
-            raise testcase.TestSkipped("not restartable")
+            raise unittest.SkipTest("not restartable")
         else:
             executor = self.executor_cls(**self.executor_kwargs)
             fut = executor.submit(returns_one)
