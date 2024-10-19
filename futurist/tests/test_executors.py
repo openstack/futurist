@@ -54,11 +54,11 @@ class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
     ]
 
     def setUp(self):
-        super(TestExecutors, self).setUp()
+        super().setUp()
         self.executor = self.executor_cls(**self.executor_kwargs)
 
     def tearDown(self):
-        super(TestExecutors, self).tearDown()
+        super().tearDown()
         self.executor.shutdown()
         self.executor = None
 
@@ -155,7 +155,7 @@ class TestRejection(testscenarios.TestWithScenarios, base.TestCase):
     ]
 
     def setUp(self):
-        super(TestRejection, self).setUp()
+        super().setUp()
         self.executor = self.executor_cls(**self.executor_kwargs)
         self.addCleanup(self.executor.shutdown, wait=True)
 

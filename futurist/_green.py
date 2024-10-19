@@ -32,7 +32,7 @@ if _utils.EVENTLET_AVAILABLE:
     Queue = greenqueue.Queue
     is_monkey_patched = greenpatcher.is_monkey_patched
 
-    class GreenThreading(object):
+    class GreenThreading:
 
         @staticmethod
         def event_object(*args, **kwargs):
@@ -58,7 +58,7 @@ else:
     is_monkey_patched = lambda mod: False
 
 
-class GreenWorker(object):
+class GreenWorker:
     def __init__(self, work, work_queue):
         self.work = work
         self.work_queue = work_queue

@@ -428,7 +428,7 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
     def test_create_with_arguments(self):
         m = mock.Mock()
 
-        class Object(object):
+        class Object:
             @periodics.periodic(0.5)
             def func1(self, *args, **kwargs):
                 m(*args, **kwargs)
@@ -533,7 +533,7 @@ class RejectingExecutor(futurist.GreenThreadPoolExecutor):
 
     def __init__(self):
         self._rejections_count = 0
-        super(RejectingExecutor, self).__init__(check_and_reject=self._reject)
+        super().__init__(check_and_reject=self._reject)
 
 
 class TestPformat(base.TestCase):

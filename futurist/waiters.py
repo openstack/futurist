@@ -113,7 +113,7 @@ def wait_for_any(fs, timeout=None):
                      'wait_for_any', timeout=timeout)
 
 
-class _AllGreenWaiter(object):
+class _AllGreenWaiter:
     """Provides the event that ``_wait_for_all_green`` blocks on."""
 
     def __init__(self, pending):
@@ -137,7 +137,7 @@ class _AllGreenWaiter(object):
         self._decrement_pending()
 
 
-class _AnyGreenWaiter(object):
+class _AnyGreenWaiter:
     """Provides the event that ``_wait_for_any_green`` blocks on."""
 
     def __init__(self):

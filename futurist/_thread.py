@@ -16,7 +16,7 @@ import threading
 import weakref
 
 
-class Threading(object):
+class Threading:
 
     @staticmethod
     def event_object(*args, **kwargs):
@@ -44,7 +44,7 @@ class ThreadWorker(threading.Thread):
     MAX_IDLE_FOR = 1
 
     def __init__(self, executor, work_queue):
-        super(ThreadWorker, self).__init__()
+        super().__init__()
         self.work_queue = work_queue
         self.should_stop = False
         self.idle = False

@@ -31,3 +31,8 @@ repos:
     hooks:
       - id: doc8
         files: doc/source/.*\.rst$
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.18.0
+    hooks:
+      - id: pyupgrade
+        args: [--py3-only]

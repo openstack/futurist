@@ -64,7 +64,7 @@ class Work(collections.namedtuple("Work",
         return self.callback(*self.args, **self.kwargs)
 
 
-class Watcher(object):
+class Watcher:
     """A **read-only** object representing a periodic callback's activities."""
 
     def __init__(self, metrics, work):
@@ -238,7 +238,7 @@ def _now_plus_periodicity(cb, now):
     return how_often + now
 
 
-class _Schedule(object):
+class _Schedule:
     """Internal heap-based structure that maintains the schedule/ordering.
 
     This stores a heap composed of the following ``(next_run, index)`` where
@@ -278,7 +278,7 @@ def _on_failure_log(log, cb, kind, spacing, exc_info, traceback=None):
                   " seconds):\n%s", kind, cb_name, spacing, traceback)
 
 
-class _Runner(object):
+class _Runner:
     def __init__(self, now_func, retain_traceback=True):
         self.now_func = now_func
         self.retain_traceback = retain_traceback
@@ -316,7 +316,7 @@ def _build(now_func, works, next_run_scheduler):
 _SCHEDULE_RETRY_EXCEPTIONS = (RuntimeError, futurist.RejectedSubmission)
 
 
-class ExecutorFactory(object):
+class ExecutorFactory:
     """Base class for any executor factory."""
 
     shutdown = True
@@ -338,7 +338,7 @@ class ExistingExecutor(ExecutorFactory):
         return self._executor
 
 
-class PeriodicWorker(object):
+class PeriodicWorker:
     """Calls a collection of callables periodically (sleeping as needed...).
 
     NOTE(harlowja): typically the :py:meth:`.start` method is executed in a
