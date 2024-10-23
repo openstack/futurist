@@ -26,3 +26,8 @@ repos:
     hooks:
       - id: hacking
         additional_dependencies: []
+  - repo: https://github.com/PyCQA/doc8
+    rev: v1.1.2
+    hooks:
+      - id: doc8
+        files: doc/source/.*\.rst$
