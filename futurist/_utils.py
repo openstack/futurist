@@ -29,7 +29,7 @@ except ImportError:
     EVENTLET_AVAILABLE = False
 
 
-class WorkItem(object):
+class WorkItem:
     """A thing to be executed by a executor."""
 
     def __init__(self, future, fn, args, kwargs):
@@ -62,7 +62,7 @@ class WorkItem(object):
                 del exc_type, exc_value, exc_tb
 
 
-class Failure(object):
+class Failure:
     """Object that captures a exception (and its associated information)."""
 
     def __init__(self, retain_tb):
@@ -139,7 +139,7 @@ def get_optimal_process_count(default=1):
         return default
 
 
-class Barrier(object):
+class Barrier:
     """A class that ensures active <= 0 occur before unblocking."""
 
     def __init__(self, cond_cls=threading.Condition):

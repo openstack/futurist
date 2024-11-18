@@ -48,11 +48,11 @@ class TestWaiters(testscenarios.TestWithScenarios, base.TestCase):
     ]
 
     def setUp(self):
-        super(TestWaiters, self).setUp()
+        super().setUp()
         self.executor = self.executor_cls(**self.executor_kwargs)
 
     def tearDown(self):
-        super(TestWaiters, self).tearDown()
+        super().tearDown()
         self.executor.shutdown()
         self.executor = None
 

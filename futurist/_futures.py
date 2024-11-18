@@ -36,7 +36,7 @@ class RejectedSubmission(Exception):
 Future = _futures.Future
 
 
-class _Gatherer(object):
+class _Gatherer:
     def __init__(self, submit_func, lock_factory, start_before_submit=False):
         self._submit_func = submit_func
         self._stats_lock = lock_factory()
@@ -198,14 +198,14 @@ class ProcessPoolExecutor(_process.ProcessPoolExecutor):
     def __init__(self, max_workers=None):
         if max_workers is None:
             max_workers = _utils.get_optimal_process_count()
-        super(ProcessPoolExecutor, self).__init__(max_workers=max_workers)
+        super().__init__(max_workers=max_workers)
         if self._max_workers <= 0:
             raise ValueError("Max workers must be greater than zero")
         self._gatherer = _Gatherer(
             # Since our submit will use this gatherer we have to reference
             # the parent submit, bound to this instance (which is what we
             # really want to use anyway).
-            super(ProcessPoolExecutor, self).submit,
+            super().submit,
             self.threading.lock_object)
 
     @property
@@ -303,7 +303,7 @@ class GreenFuture(Future):
     __doc__ = Future.__doc__
 
     def __init__(self):
-        super(GreenFuture, self).__init__()
+        super().__init__()
         if not _utils.EVENTLET_AVAILABLE:
             raise RuntimeError('Eventlet is needed to use a green future')
         # NOTE(harlowja): replace the built-in condition with a greenthread
@@ -415,7 +415,7 @@ class GreenThreadPoolExecutor(_futures.Executor):
             self._pool.waitall()
 
 
-class ExecutorStatistics(object):
+class ExecutorStatistics:
     """Holds *immutable* information about a executors executions."""
 
     __slots__ = ['_failures', '_executed', '_runtime', '_cancelled']
