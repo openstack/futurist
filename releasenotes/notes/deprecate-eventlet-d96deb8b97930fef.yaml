@@ -1,0 +1,9 @@
+---
+deprecations:
+  - |
+    Eventlet usages are deprecated and the removal of Eventlet from
+    OpenStack `is planned
+    <https://governance.openstack.org/tc//goals/proposed/remove-eventlet.html>`_,
+    for this reason the executors based on Eventlet are deprecated.
+    Start migrating your stack to the threading executor.
+    Please also start considering removing your internal Eventlet usages.

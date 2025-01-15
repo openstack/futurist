@@ -19,10 +19,11 @@ import threading
 from concurrent import futures as _futures
 from concurrent.futures import process as _process
 
+from debtcollector import removals
+
 from futurist import _green
 from futurist import _thread
 from futurist import _utils
-
 
 TimeoutError = _futures.TimeoutError
 CancelledError = _futures.CancelledError
@@ -236,6 +237,10 @@ class SynchronousExecutor(_futures.Executor):
 
     threading = _thread.Threading()
 
+    @removals.removed_kwarg('green',
+                            message="Eventlet support is deprecated. "
+                            "Please migrate your code and stop enforcing "
+                            "its usage.")
     def __init__(self, green=False, run_work_func=lambda work: work.run()):
         """Synchronous executor constructor.
 
@@ -299,6 +304,10 @@ class SynchronousExecutor(_futures.Executor):
         return fut
 
 
+@removals.removed_class("GreenFuture",
+                        message="Eventlet support is deprecated. "
+                        "Please migrate your code and stop using Green "
+                        "future.")
 class GreenFuture(Future):
     __doc__ = Future.__doc__
 
@@ -315,6 +324,10 @@ class GreenFuture(Future):
             self._condition = _green.threading.condition_object()
 
 
+@removals.removed_class("GreenThreadPoolExecutor",
+                        message="Eventlet support is deprecated. "
+                        "Please migrate your code and stop using Green "
+                        "executor.")
 class GreenThreadPoolExecutor(_futures.Executor):
     """Executor that uses a green thread pool to execute calls asynchronously.
 
