@@ -12,11 +12,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-try:
-    from contextlib import ExitStack
-except ImportError:
-    from contextlib2 import ExitStack
-
 import collections
 import contextlib
 import functools
@@ -49,7 +44,7 @@ def _acquire_and_release_futures(fs):
     # always acquire the conditions in the same order, no matter what; a way
     # to avoid dead-lock).
     fs = sorted(fs, key=id)
-    with ExitStack() as stack:
+    with contextlib.ExitStack() as stack:
         for fut in fs:
             stack.enter_context(fut._condition)
         yield
