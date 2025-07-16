@@ -13,6 +13,7 @@
 import threading
 import time
 import unittest
+from unittest import mock
 
 from eventlet.green import threading as green_threading
 import testscenarios
@@ -49,6 +50,8 @@ class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
                    'restartable': False, 'executor_kwargs': {}}),
         ('thread', {'executor_cls': futurist.ThreadPoolExecutor,
                     'restartable': False, 'executor_kwargs': {}}),
+        ('thread_dyn', {'executor_cls': futurist.DynamicThreadPoolExecutor,
+                        'restartable': False, 'executor_kwargs': {}}),
         ('process', {'executor_cls': futurist.ProcessPoolExecutor,
                      'restartable': False, 'executor_kwargs': {}}),
     ]
@@ -178,3 +181,132 @@ class TestRejection(testscenarios.TestWithScenarios, base.TestCase):
 
         self.assertRaises(futurist.RejectedSubmission,
                           self.executor.submit, returns_one)
+
+
+@mock.patch.object(futurist.DynamicThreadPoolExecutor, '_add_thread',
+                   # Use the original function behind the scene
+                   side_effect=futurist.DynamicThreadPoolExecutor._add_thread,
+                   autospec=True)
+class TestDynamicThreadPool(base.TestCase):
+
+    def _new(self, *args, **kwargs):
+        executor = futurist.DynamicThreadPoolExecutor(*args, **kwargs)
+        self.addCleanup(executor.shutdown, wait=True)
+        self.assertEqual(0, executor.queue_size)
+        self.assertEqual(0, executor.num_workers)
+        self.assertEqual(0, executor.get_num_idle_workers())
+        self.assertEqual(0, len(executor._dead_workers))
+        return executor
+
+    def test_stays_at_min_worker(self, mock_add_thread):
+        """Executing tasks sequentially: no growth beyond 1 thread."""
+        executor = self._new(max_workers=3)
+        for _i in range(10):
+            executor.submit(lambda: None).result()
+        self.assertEqual(0, executor.queue_size)
+        self.assertEqual(1, executor.num_workers)
+        self.assertEqual(1, executor.get_num_idle_workers())
+        self.assertEqual(0, len(executor._dead_workers))
+        self.assertEqual(1, mock_add_thread.call_count)
+
+    def test_grow_and_shrink(self, mock_add_thread):
+        """Executing tasks in parallel: grows and shrinks."""
+        executor = self._new(max_workers=10)
+        started = threading.Barrier(11)
+        done = threading.Event()
+
+        self.addCleanup(started.abort)
+        self.addCleanup(done.set)
+
+        def task():
+            started.wait()
+            done.wait()
+
+        for _i in range(10):
+            executor.submit(task)
+            time.sleep(0.1)  # without this threads don't start
+
+        started.wait()
+        self.assertEqual(0, executor.queue_size)
+        self.assertEqual(10, executor.num_workers)
+        self.assertEqual(0, executor.get_num_idle_workers())
+        self.assertEqual(0, len(executor._dead_workers))
+        self.assertEqual(10, mock_add_thread.call_count)
+
+        done.set()
+        time.sleep(0.1)
+        executor.maintain()
+        self.assertEqual(0, executor.queue_size)
+        self.assertEqual(1, executor.num_workers)
+        self.assertEqual(1, executor.get_num_idle_workers())
+        self.assertEqual(0, len(executor._dead_workers))
+
+
+@mock.patch('futurist._thread.ThreadWorker.create_and_register', autospec=True)
+class TestDynamicThreadPoolMaintain(base.TestCase):
+    def test_ensure_one_worker(self, mock_create_thread):
+        executor = futurist.DynamicThreadPoolExecutor()
+        executor.maintain()
+        self.assertEqual(1, len(executor._workers))
+        created_worker = mock_create_thread.return_value
+        created_worker.start.assert_called_once_with()
+        created_worker.stop.assert_not_called()
+
+    def test_ensure_min_workers(self, mock_create_thread):
+        executor = futurist.DynamicThreadPoolExecutor(min_workers=42)
+        executor.maintain()
+        self.assertEqual(42, len(executor._workers))
+        created_worker = mock_create_thread.return_value
+        created_worker.start.assert_called_with()
+        self.assertEqual(42, created_worker.start.call_count)
+        created_worker.stop.assert_not_called()
+
+    def test_too_many_idle_workers(self, mock_create_thread):
+        executor = futurist.DynamicThreadPoolExecutor(min_workers=42)
+        executor._workers = [mock.Mock(idle=True)] * 100
+        executor.maintain()
+        self.assertEqual(42, len(executor._workers))
+        mock_create_thread.return_value.start.assert_not_called()
+        self.assertEqual(58, executor._workers[0].stop.call_count)
+
+    def test_all_busy_workers(self, mock_create_thread):
+        executor = futurist.DynamicThreadPoolExecutor(max_workers=100)
+        executor._workers = [mock.Mock(idle=False)] * 100
+        executor.maintain()
+        self.assertEqual(100, len(executor._workers))
+        mock_create_thread.return_value.start.assert_not_called()
+        executor._workers[0].stop.assert_not_called()
+
+    def test_busy_workers_create_more(self, mock_create_thread):
+        executor = futurist.DynamicThreadPoolExecutor(max_workers=200)
+        executor._workers = [mock.Mock(idle=False)] * 100
+        executor.maintain()
+        # NOTE(dtantsur): once the executor reaches 125 threads, the ratio of
+        # busy to total threads is exactly 100/125=0.8 (the default
+        # grow_threshold). One more thread is created, resulting in 126.
+        self.assertEqual(126, len(executor._workers))
+        self.assertEqual(26, executor.get_num_idle_workers())
+        created_worker = mock_create_thread.return_value
+        created_worker.start.assert_called_with()
+        self.assertEqual(26, created_worker.start.call_count)
+        created_worker.stop.assert_not_called()
+
+    def test_busy_workers_within_range(self, mock_create_thread):
+        executor = futurist.DynamicThreadPoolExecutor()
+        executor._workers = [mock.Mock(idle=i < 30) for i in range(100)]
+        executor.maintain()
+        self.assertEqual(100, len(executor._workers))
+        mock_create_thread.return_value.start.assert_not_called()
+
+    def test_busy_workers_and_large_queue(self, mock_create_thread):
+        executor = futurist.DynamicThreadPoolExecutor(max_workers=200)
+        executor._workers = [mock.Mock(idle=i < 30) for i in range(100)]
+        for i in range(20):
+            executor._work_queue.put(None)
+        executor.maintain()
+        # NOTE(dtantsur): initial busy ratio is (70+20)/100=0.9. As workers
+        # are added, it reaches (70+20)/113, which is just below 0.8.
+        self.assertEqual(113, len(executor._workers))
+        created_worker = mock_create_thread.return_value
+        created_worker.start.assert_called_with()
+        self.assertEqual(13, created_worker.start.call_count)

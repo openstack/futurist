@@ -20,6 +20,7 @@ from futurist._futures import GreenFuture
 from futurist._futures import CancelledError
 from futurist._futures import TimeoutError
 
+from futurist._futures import DynamicThreadPoolExecutor
 from futurist._futures import GreenThreadPoolExecutor
 from futurist._futures import ProcessPoolExecutor
 from futurist._futures import SynchronousExecutor
@@ -37,6 +38,7 @@ __all__ = [
 
     'GreenThreadPoolExecutor', 'ProcessPoolExecutor',
     'SynchronousExecutor', 'ThreadPoolExecutor',
+    'DynamicThreadPoolExecutor',
 
     'RejectedSubmission',
 

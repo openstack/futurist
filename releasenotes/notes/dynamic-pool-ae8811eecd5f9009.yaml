@@ -1,0 +1,10 @@
+---
+features:
+  - |
+    Adds a new ``DynamicThreadPoolExecutor`` that can resize (grow or shrink)
+    its pool based on demand. As new work is scheduled on the executor, it will
+    try to keep the proportion of busy threads within the provided range
+    (between 40% and 80% by default).
+
+    The motivation is to provide a scalable alternative to
+    ``GreenThreadPoolExecutor``.

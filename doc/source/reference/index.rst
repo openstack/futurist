@@ -22,6 +22,10 @@ Executors
     :members:
     :special-members: __init__
 
+.. autoclass:: futurist.DynamicThreadPoolExecutor
+    :members:
+    :special-members: __init__
+
 -------
 Futures
 -------
