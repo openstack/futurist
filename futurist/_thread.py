@@ -37,7 +37,10 @@ class Threading:
 
 _to_be_cleaned = weakref.WeakKeyDictionary()
 _dying = False
-_TOMBSTONE = object()
+
+
+class _Stopping(Exception):
+    pass
 
 
 class ThreadWorker(threading.Thread):
@@ -51,8 +54,7 @@ class ThreadWorker(threading.Thread):
         self.daemon = True
         # Ensure that when the owning executor gets cleaned up that these
         # threads also get shutdown (if they were not already shutdown).
-        self.executor_ref = weakref.ref(
-            executor, lambda _obj: work_queue.put(_TOMBSTONE))
+        self.executor_ref = weakref.ref(executor, lambda _obj: self.stop())
 
     @classmethod
     def create_and_register(cls, executor, work_queue):
@@ -84,27 +86,22 @@ class ThreadWorker(threading.Thread):
                 work = self.work_queue.get(True, self.MAX_IDLE_FOR)
             except queue.Empty:
                 if self._is_dying():
-                    work = _TOMBSTONE
+                    raise _Stopping()
         self.idle = False
         return work
 
-    def stop(self, soon_as_possible=False):
-        if soon_as_possible:
-            # This will potentially leave unfinished work on queues.
-            self.should_stop = True
-        self.work_queue.put(_TOMBSTONE)
+    def stop(self):
+        self.should_stop = True
 
     def run(self):
         while not self._is_dying():
-            work = self._wait_for_work()
             try:
-                if work is _TOMBSTONE:
-                    # Ensure any other threads on the same queue also get
-                    # the tombstone object...
-                    self.work_queue.put(_TOMBSTONE)
-                    return
-                else:
-                    work.run()
+                work = self._wait_for_work()
+            except _Stopping:
+                return
+
+            try:
+                work.run()
             finally:
                 # Avoid any potential (self) references to the work item
                 # in tracebacks or similar...
@@ -118,7 +115,7 @@ def _clean_up():
     threads_to_wait_for = []
     while _to_be_cleaned:
         worker, _work_val = _to_be_cleaned.popitem()
-        worker.stop(soon_as_possible=True)
+        worker.stop()
         threads_to_wait_for.append(worker)
     while threads_to_wait_for:
         worker = threads_to_wait_for.pop()
