@@ -147,6 +147,31 @@ class ThreadPoolExecutor(_futures.Executor):
         """Accessor to determine if the executor is alive/active."""
         return not self._shutdown
 
+    @property
+    def queue_size(self):
+        """The current size of the queue.
+
+        This value represents the number of tasks that are waiting for a free
+        worker thread.
+        """
+        return self._work_queue.qsize()
+
+    @property
+    def num_workers(self):
+        """The current number of worker threads."""
+        return len(self._workers)
+
+    def get_num_idle_workers(self):
+        """Get the number of currently idle threads.
+
+        A thread is idle if it's waiting for new tasks from the queue.
+
+        This method is required to obtain the shutdown lock it provides
+        an accurate count.
+        """
+        with self._shutdown_lock:
+            return sum(1 for w in self._workers if w.idle)
+
     def _maybe_spin_up(self):
         """Spin up a worker if needed."""
         # Do more advanced idle checks and/or reaping of very idle
