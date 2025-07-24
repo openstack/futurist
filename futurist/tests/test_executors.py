@@ -10,6 +10,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from concurrent import futures
 import threading
 import time
 import unittest
@@ -214,6 +215,7 @@ class TestDynamicThreadPool(base.TestCase):
         executor = self._new(max_workers=10)
         started = threading.Barrier(11)
         done = threading.Event()
+        tasks = []
 
         self.addCleanup(started.abort)
         self.addCleanup(done.set)
@@ -223,18 +225,17 @@ class TestDynamicThreadPool(base.TestCase):
             done.wait()
 
         for _i in range(10):
-            executor.submit(task)
-            time.sleep(0.1)  # without this threads don't start
+            tasks.append(executor.submit(task))
 
-        started.wait()
+        started.wait()  # this ensures that all threads have been started
         self.assertEqual(0, executor.queue_size)
         self.assertEqual(10, executor.num_workers)
         self.assertEqual(0, executor.get_num_idle_workers())
         self.assertEqual(0, len(executor._dead_workers))
         self.assertEqual(10, mock_add_thread.call_count)
 
-        done.set()
-        time.sleep(0.1)
+        done.set()  # this allows all threads to stop
+        futures.wait(tasks)
         executor.maintain()
         self.assertEqual(0, executor.queue_size)
         self.assertEqual(1, executor.num_workers)
