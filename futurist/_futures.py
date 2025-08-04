@@ -137,7 +137,7 @@ class ThreadPoolExecutor(_futures.Executor):
         if max_workers is None:
             max_workers = _utils.get_optimal_thread_count()
         if max_workers <= 0:
-            raise ValueError("Max workers must be greater than zero")
+            raise ValueError("max_workers must be greater than zero")
         self._max_workers = max_workers
         self._work_queue = queue.Queue()
         self._shutdown_lock = threading.RLock()
@@ -238,8 +238,8 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
     and grow_threshold.
 
     Initially, the pool is empty, so submitting a task always result in one
-    new thread. Since min_workers must be positive, at least one thread will
-    always be available after this point.
+    new thread. Since min_workers must be greater than zero, at least one
+    thread will always be available after this point.
 
     Once the proportion of busy threads reaches grow_threshold (e.g. 4 out of 5
     with the default grow_threshold of 0.8), a new thread is created when a
@@ -291,7 +291,7 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
         super().__init__(max_workers=max_workers,
                          check_and_reject=check_and_reject)
         if min_workers <= 0:
-            raise ValueError('min_workers must be positive')
+            raise ValueError('min_workers must be greater than zero')
         if max_workers and min_workers >= max_workers:
             raise ValueError('min_workers must be less than max_workers')
         self._min_workers = min_workers
