@@ -199,6 +199,11 @@ class ThreadPoolExecutor(_futures.Executor):
         with self._shutdown_lock:
             if not self._shutdown:
                 self._shutdown = True
+                if wait:
+                    # Wait for all queued work to complete using queue.join()
+                    # This will block until all work items have been processed
+                    # and task_done() has been called for each
+                    self._work_queue.join()
                 for w in self._workers:
                     w.stop()
         if wait:

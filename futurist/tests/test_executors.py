@@ -40,6 +40,11 @@ def delayed(wait_secs):
     time.sleep(wait_secs)
 
 
+def delayed_with_result(task_id):
+    time.sleep(0.1)
+    return task_id
+
+
 class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
     scenarios = [
         ('sync', {'executor_cls': futurist.SynchronousExecutor,
@@ -96,6 +101,23 @@ class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
         executor = self.executor_cls(**self.executor_kwargs)
         executor.shutdown()
         self.assertRaises(RuntimeError, executor.submit, returns_one)
+
+    def test_shutdown_waits_for_all_tasks(self):
+        num_tasks = 3
+        futures = []
+        for i in range(num_tasks):
+            future = self.executor.submit(delayed_with_result, i)
+            futures.append(future)
+
+        self.executor.shutdown(wait=True)
+
+        results = []
+        for future in futures:
+            self.assertTrue(future.done())
+            results.append(future.result())
+
+        self.assertEqual(len(results), num_tasks)
+        self.assertEqual(set(results), set(range(num_tasks)))
 
     def test_restartable(self):
         if not self.restartable:
@@ -241,6 +263,25 @@ class TestDynamicThreadPool(base.TestCase):
         self.assertEqual(1, executor.num_workers)
         self.assertEqual(1, executor.get_num_idle_workers())
         self.assertEqual(0, len(executor._dead_workers))
+
+    def test_shutdown_waits_for_queued_tasks(self, mock_add_thread):
+        results = []
+        results_lock = threading.Lock()
+
+        def slow_task(task_id):
+            time.sleep(0.1)
+            with results_lock:
+                results.append(task_id)
+
+        num_tasks = 5
+        executor = self._new(max_workers=2, min_workers=1)
+        for i in range(num_tasks):
+            executor.submit(slow_task, i)
+
+        executor.shutdown(wait=True)
+
+        self.assertEqual(len(results), num_tasks)
+        self.assertEqual(set(results), set(range(num_tasks)))
 
 
 @mock.patch('futurist._thread.ThreadWorker.create_and_register', autospec=True)

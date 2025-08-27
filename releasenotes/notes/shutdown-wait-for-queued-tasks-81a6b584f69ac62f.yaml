@@ -1,0 +1,6 @@
+---
+fixes:
+  - |
+    ``shutdown(wait=True)`` abandoned queued work.
+    This fix ensures it blocks until all submitted tasks (running and queued)
+    finishes, consistent with Python's concurrent.futures.ThreadPoolExecutor

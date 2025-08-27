@@ -103,6 +103,8 @@ class ThreadWorker(threading.Thread):
             try:
                 work.run()
             finally:
+                # Mark task as done for queue.join() support
+                self.work_queue.task_done()
                 # Avoid any potential (self) references to the work item
                 # in tracebacks or similar...
                 del work
