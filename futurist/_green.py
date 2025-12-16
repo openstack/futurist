@@ -11,9 +11,16 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+
+from __future__ import annotations
+
 import sys
+from typing import TYPE_CHECKING
 
 from futurist import _utils
+
+if TYPE_CHECKING:
+    import threading as stdlib_threading
 
 try:
     from eventlet import greenpool
@@ -38,20 +45,22 @@ if _utils.EVENTLET_AVAILABLE:
 
     class GreenThreading:
         @staticmethod
-        def event_object(*args, **kwargs):
-            return greenthreading.Event(*args, **kwargs)
+        def event_object() -> stdlib_threading.Event:
+            return greenthreading.Event()  # type: ignore
 
         @staticmethod
-        def lock_object(*args, **kwargs):
-            return greenthreading.Lock(*args, **kwargs)
+        def lock_object() -> stdlib_threading.Lock:
+            return greenthreading.Lock()  # type: ignore
 
         @staticmethod
-        def rlock_object(*args, **kwargs):
-            return greenthreading.RLock(*args, **kwargs)
+        def rlock_object() -> stdlib_threading.RLock:
+            return greenthreading.RLock()  # type: ignore
 
         @staticmethod
-        def condition_object(*args, **kwargs):
-            return greenthreading.Condition(*args, **kwargs)
+        def condition_object(
+            lock: stdlib_threading.Lock | stdlib_threading.RLock | None = None,
+        ) -> stdlib_threading.Condition:
+            return greenthreading.Condition(lock=lock)  # type: ignore
 
     threading = GreenThreading()
 else:

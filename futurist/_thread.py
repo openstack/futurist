@@ -10,6 +10,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from __future__ import annotations
+
 import atexit
 import queue
 import threading
@@ -18,20 +20,22 @@ import weakref
 
 class Threading:
     @staticmethod
-    def event_object(*args, **kwargs):
-        return threading.Event(*args, **kwargs)
+    def event_object() -> threading.Event:
+        return threading.Event()
 
     @staticmethod
-    def lock_object(*args, **kwargs):
-        return threading.Lock(*args, **kwargs)
+    def lock_object() -> threading.Lock:
+        return threading.Lock()
 
     @staticmethod
-    def rlock_object(*args, **kwargs):
-        return threading.RLock(*args, **kwargs)
+    def rlock_object() -> threading.RLock:
+        return threading.RLock()
 
     @staticmethod
-    def condition_object(*args, **kwargs):
-        return threading.Condition(*args, **kwargs)
+    def condition_object(
+        lock: threading.Lock | threading.RLock | None = None,
+    ) -> threading.Condition:
+        return threading.Condition(lock=lock)
 
 
 _to_be_cleaned = weakref.WeakKeyDictionary()
