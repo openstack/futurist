@@ -74,10 +74,12 @@ class _Gatherer:
             # values will not see a mutated/corrupted one). Since futures may
             # be completed by different threads we need to be extra careful to
             # gather this data in a way that is thread-safe...
-            (failures, executed, runtime, cancelled) = (self._stats.failures,
-                                                        self._stats.executed,
-                                                        self._stats.runtime,
-                                                        self._stats.cancelled)
+            (failures, executed, runtime, cancelled) = (
+                self._stats.failures,
+                self._stats.executed,
+                self._stats.runtime,
+                self._stats.cancelled,
+            )
             if fut.cancelled():
                 cancelled += 1
             else:
@@ -85,10 +87,12 @@ class _Gatherer:
                 if fut.exception() is not None:
                     failures += 1
                 runtime += elapsed
-            self._stats = ExecutorStatistics(failures=failures,
-                                             executed=executed,
-                                             runtime=runtime,
-                                             cancelled=cancelled)
+            self._stats = ExecutorStatistics(
+                failures=failures,
+                executed=executed,
+                runtime=runtime,
+                cancelled=cancelled,
+            )
 
     def submit(self, fn, *args, **kwargs):
         """Submit work to be executed and capture statistics."""
@@ -97,8 +101,9 @@ class _Gatherer:
         fut = self._submit_func(fn, *args, **kwargs)
         if not self._start_before_submit:
             started_at = _utils.now()
-        fut.add_done_callback(functools.partial(self._capture_stats,
-                                                started_at))
+        fut.add_done_callback(
+            functools.partial(self._capture_stats, started_at)
+        )
         return fut
 
 
@@ -182,8 +187,7 @@ class ThreadPoolExecutor(_futures.Executor):
             return sum(1 for w in self._workers if w.idle)
 
     def _add_thread(self):
-        w = _thread.ThreadWorker.create_and_register(
-            self, self._work_queue)
+        w = _thread.ThreadWorker.create_and_register(self, self._work_queue)
         # Always save it before we start (so that even if we fail
         # starting it we can correctly join on it).
         self._workers.append(w)
@@ -191,8 +195,7 @@ class ThreadPoolExecutor(_futures.Executor):
 
     def _maybe_spin_up(self):
         """Spin up a worker if needed."""
-        if (not self._workers or
-                len(self._workers) < self._max_workers):
+        if not self._workers or len(self._workers) < self._max_workers:
             self._add_thread()
 
     def shutdown(self, wait=True):
@@ -223,8 +226,9 @@ class ThreadPoolExecutor(_futures.Executor):
         # remove it, please add a lock there instead.
         with self._shutdown_lock:
             if self._shutdown:
-                raise RuntimeError('Can not schedule new futures'
-                                   ' after being shutdown')
+                raise RuntimeError(
+                    'Can not schedule new futures after being shutdown'
+                )
             self._check_and_reject(self, self._work_queue.qsize())
             return self._gatherer.submit(fn, *args, **kwargs)
 
@@ -261,9 +265,14 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
 
     """
 
-    def __init__(self, max_workers=None, check_and_reject=None,
-                 min_workers=1, grow_threshold=0.8,
-                 shrink_threshold=0.4):
+    def __init__(
+        self,
+        max_workers=None,
+        check_and_reject=None,
+        min_workers=1,
+        grow_threshold=0.8,
+        shrink_threshold=0.4,
+    ):
         """Initializes a thread pool executor.
 
         :param max_workers: maximum number of workers that can be
@@ -293,8 +302,9 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
                                  threads for the pool to shrink.
         :type shrink_threshold: float
         """
-        super().__init__(max_workers=max_workers,
-                         check_and_reject=check_and_reject)
+        super().__init__(
+            max_workers=max_workers, check_and_reject=check_and_reject
+        )
         if min_workers <= 0:
             raise ValueError('min_workers must be greater than zero')
         if max_workers and min_workers >= max_workers:
@@ -307,7 +317,8 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
             raise ValueError('shrink_threshold must be within [0, 1)')
         if shrink_threshold >= grow_threshold:
             raise ValueError(
-                'shrink_threshold must be less than grow_threshold')
+                'shrink_threshold must be less than grow_threshold'
+            )
         self._grow_threshold = grow_threshold
         self._shrink_threshold = shrink_threshold
 
@@ -318,7 +329,7 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
         idle_worker = None
         for i, w in enumerate(self._workers):
             if w.idle:
-                new_workers = self._workers[i + 1:]
+                new_workers = self._workers[i + 1 :]
                 idle_worker = w
                 break
             new_workers.append(w)
@@ -326,7 +337,8 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
         if idle_worker is None:
             # Should not actually happen but races are possible; do nothing
             LOG.warning(
-                'No idle worker thread to delete when shrinking pool %r', self)
+                'No idle worker thread to delete when shrinking pool %r', self
+            )
             return False
 
         w.stop()
@@ -349,15 +361,25 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
         idle = self.get_num_idle_workers()
         busy = (nthreads - idle + self.queue_size) / nthreads
         if busy >= self._grow_threshold and nthreads < self._max_workers:
-            LOG.debug('Creating a new worker thread for pool %r '
-                      '(%d thread(s) idle, queue size %d, total %d thread(s))',
-                      self, idle, self.queue_size, nthreads)
+            LOG.debug(
+                'Creating a new worker thread for pool %r '
+                '(%d thread(s) idle, queue size %d, total %d thread(s))',
+                self,
+                idle,
+                self.queue_size,
+                nthreads,
+            )
             self._add_thread()
             return True
         elif busy <= self._shrink_threshold and nthreads > self._min_workers:
-            LOG.debug('Deleting a worker thread from pool %r '
-                      '(%d thread(s) idle, queue size %d, total %d thread(s))',
-                      self, idle, self.queue_size, nthreads)
+            LOG.debug(
+                'Deleting a worker thread from pool %r '
+                '(%d thread(s) idle, queue size %d, total %d thread(s))',
+                self,
+                idle,
+                self.queue_size,
+                nthreads,
+            )
             return self._drop_thread()
 
         return False
@@ -418,7 +440,8 @@ class ProcessPoolExecutor(_process.ProcessPoolExecutor):
             # the parent submit, bound to this instance (which is what we
             # really want to use anyway).
             super().submit,
-            self.threading.lock_object)
+            self.threading.lock_object,
+        )
 
     @property
     def alive(self):
@@ -448,10 +471,12 @@ class SynchronousExecutor(_futures.Executor):
 
     threading = _thread.Threading()
 
-    @removals.removed_kwarg('green',
-                            message="Eventlet support is deprecated. "
-                            "Please migrate your code and stop enforcing "
-                            "its usage.")
+    @removals.removed_kwarg(
+        'green',
+        message="Eventlet support is deprecated. "
+        "Please migrate your code and stop enforcing "
+        "its usage.",
+    )
     def __init__(self, green=False, run_work_func=lambda work: work.run()):
         """Synchronous executor constructor.
 
@@ -464,8 +489,9 @@ class SynchronousExecutor(_futures.Executor):
         :param run_work_func: callable
         """
         if green and not _utils.EVENTLET_AVAILABLE:
-            raise RuntimeError('Eventlet is needed to use a green'
-                               ' synchronous executor')
+            raise RuntimeError(
+                'Eventlet is needed to use a green synchronous executor'
+            )
         if not callable(run_work_func):
             raise ValueError("Run work parameter expected to be callable")
         self._run_work_func = run_work_func
@@ -476,9 +502,9 @@ class SynchronousExecutor(_futures.Executor):
         else:
             self._future_cls = Future
         self._run_work_func = run_work_func
-        self._gatherer = _Gatherer(self._submit,
-                                   self.threading.lock_object,
-                                   start_before_submit=True)
+        self._gatherer = _Gatherer(
+            self._submit, self.threading.lock_object, start_before_submit=True
+        )
 
     @property
     def alive(self):
@@ -505,8 +531,9 @@ class SynchronousExecutor(_futures.Executor):
     def submit(self, fn, *args, **kwargs):
         """Submit some work to be executed (and gather statistics)."""
         if self._shutoff:
-            raise RuntimeError('Can not schedule new futures'
-                               ' after being shutdown')
+            raise RuntimeError(
+                'Can not schedule new futures after being shutdown'
+            )
         return self._gatherer.submit(fn, *args, **kwargs)
 
     def _submit(self, fn, *args, **kwargs):
@@ -515,10 +542,12 @@ class SynchronousExecutor(_futures.Executor):
         return fut
 
 
-@removals.removed_class("GreenFuture",
-                        message="Eventlet support is deprecated. "
-                        "Please migrate your code and stop using Green "
-                        "future.")
+@removals.removed_class(
+    "GreenFuture",
+    message="Eventlet support is deprecated. "
+    "Please migrate your code and stop using Green "
+    "future.",
+)
 class GreenFuture(Future):
     __doc__ = Future.__doc__
 
@@ -535,10 +564,12 @@ class GreenFuture(Future):
             self._condition = _green.threading.condition_object()
 
 
-@removals.removed_class("GreenThreadPoolExecutor",
-                        message="Eventlet support is deprecated. "
-                        "Please migrate your code and stop using Green "
-                        "executor.")
+@removals.removed_class(
+    "GreenThreadPoolExecutor",
+    message="Eventlet support is deprecated. "
+    "Please migrate your code and stop using Green "
+    "executor.",
+)
 class GreenThreadPoolExecutor(_futures.Executor):
     """Executor that uses a green thread pool to execute calls asynchronously.
 
@@ -579,8 +610,7 @@ class GreenThreadPoolExecutor(_futures.Executor):
         self._check_and_reject = check_and_reject or (lambda e, waiting: None)
         self._shutdown_lock = self.threading.lock_object()
         self._shutdown = False
-        self._gatherer = _Gatherer(self._submit,
-                                   self.threading.lock_object)
+        self._gatherer = _Gatherer(self._submit, self.threading.lock_object)
 
     @property
     def alive(self):
@@ -602,8 +632,9 @@ class GreenThreadPoolExecutor(_futures.Executor):
         """
         with self._shutdown_lock:
             if self._shutdown:
-                raise RuntimeError('Can not schedule new futures'
-                                   ' after being shutdown')
+                raise RuntimeError(
+                    'Can not schedule new futures after being shutdown'
+                )
             self._check_and_reject(self, self._delayed_work.qsize())
             return self._gatherer.submit(fn, *args, **kwargs)
 
@@ -644,10 +675,12 @@ class ExecutorStatistics:
 
     __slots__ = ['_failures', '_executed', '_runtime', '_cancelled']
 
-    _REPR_MSG_TPL = ("<ExecutorStatistics object at 0x%(ident)x"
-                     " (failures=%(failures)s,"
-                     " executed=%(executed)s, runtime=%(runtime)0.2f,"
-                     " cancelled=%(cancelled)s)>")
+    _REPR_MSG_TPL = (
+        "<ExecutorStatistics object at 0x%(ident)x"
+        " (failures=%(failures)s,"
+        " executed=%(executed)s, runtime=%(runtime)0.2f,"
+        " cancelled=%(cancelled)s)>"
+    )
 
     def __init__(self, failures=0, executed=0, runtime=0.0, cancelled=0):
         self._failures = failures
@@ -702,10 +735,12 @@ class ExecutorStatistics:
         return self._runtime / self._executed
 
     def __repr__(self):
-        return self._REPR_MSG_TPL % ({
-            'ident': id(self),
-            'failures': self._failures,
-            'executed': self._executed,
-            'runtime': self._runtime,
-            'cancelled': self._cancelled,
-        })
+        return self._REPR_MSG_TPL % (
+            {
+                'ident': id(self),
+                'failures': self._failures,
+                'executed': self._executed,
+                'runtime': self._runtime,
+                'cancelled': self._cancelled,
+            }
+        )

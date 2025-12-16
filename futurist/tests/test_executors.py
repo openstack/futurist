@@ -28,6 +28,7 @@ from futurist.tests import base
 # executor can not access instance or lambda level functions (since those
 # are not pickleable).
 
+
 def returns_one():
     return 1
 
@@ -47,19 +48,54 @@ def delayed_with_result(task_id):
 
 class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
     scenarios = [
-        ('sync', {'executor_cls': futurist.SynchronousExecutor,
-                  'restartable': True, 'executor_kwargs': {}}),
-        ('green_sync', {'executor_cls': futurist.SynchronousExecutor,
-                        'restartable': True,
-                        'executor_kwargs': {'green': True}}),
-        ('green', {'executor_cls': futurist.GreenThreadPoolExecutor,
-                   'restartable': False, 'executor_kwargs': {}}),
-        ('thread', {'executor_cls': futurist.ThreadPoolExecutor,
-                    'restartable': False, 'executor_kwargs': {}}),
-        ('thread_dyn', {'executor_cls': futurist.DynamicThreadPoolExecutor,
-                        'restartable': False, 'executor_kwargs': {}}),
-        ('process', {'executor_cls': futurist.ProcessPoolExecutor,
-                     'restartable': False, 'executor_kwargs': {}}),
+        (
+            'sync',
+            {
+                'executor_cls': futurist.SynchronousExecutor,
+                'restartable': True,
+                'executor_kwargs': {},
+            },
+        ),
+        (
+            'green_sync',
+            {
+                'executor_cls': futurist.SynchronousExecutor,
+                'restartable': True,
+                'executor_kwargs': {'green': True},
+            },
+        ),
+        (
+            'green',
+            {
+                'executor_cls': futurist.GreenThreadPoolExecutor,
+                'restartable': False,
+                'executor_kwargs': {},
+            },
+        ),
+        (
+            'thread',
+            {
+                'executor_cls': futurist.ThreadPoolExecutor,
+                'restartable': False,
+                'executor_kwargs': {},
+            },
+        ),
+        (
+            'thread_dyn',
+            {
+                'executor_cls': futurist.DynamicThreadPoolExecutor,
+                'restartable': False,
+                'executor_kwargs': {},
+            },
+        ),
+        (
+            'process',
+            {
+                'executor_cls': futurist.ProcessPoolExecutor,
+                'restartable': False,
+                'executor_kwargs': {},
+            },
+        ),
     ]
 
     def setUp(self):
@@ -89,13 +125,15 @@ class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
 
         self.assertEqual(3, self.executor.statistics.executed)
         self.assertEqual(1, self.executor.statistics.failures)
-        self.assertGreaterEqual(self.executor.statistics.runtime,
-                                # It appears that the thread run loop
-                                # may call this before 0.2 seconds (or 0.2
-                                # will not be represented as a float correctly)
-                                # is really up so accommodate for that
-                                # happening...
-                                0.199)
+        self.assertGreaterEqual(
+            self.executor.statistics.runtime,
+            # It appears that the thread run loop
+            # may call this before 0.2 seconds (or 0.2
+            # will not be represented as a float correctly)
+            # is really up so accommodate for that
+            # happening...
+            0.199,
+        )
 
     def test_post_shutdown_raises(self):
         executor = self.executor_cls(**self.executor_kwargs)
@@ -170,14 +208,28 @@ class TestRejection(testscenarios.TestWithScenarios, base.TestCase):
     rejector = rejection.reject_when_reached(1)
 
     scenarios = [
-        ('green', {'executor_cls': futurist.GreenThreadPoolExecutor,
-                   'executor_kwargs': {'check_and_reject': rejector,
-                                       'max_workers': 1},
-                   'event_cls': green_threading.Event}),
-        ('thread', {'executor_cls': futurist.ThreadPoolExecutor,
-                    'executor_kwargs': {'check_and_reject': rejector,
-                                        'max_workers': 1},
-                    'event_cls': threading.Event}),
+        (
+            'green',
+            {
+                'executor_cls': futurist.GreenThreadPoolExecutor,
+                'executor_kwargs': {
+                    'check_and_reject': rejector,
+                    'max_workers': 1,
+                },
+                'event_cls': green_threading.Event,
+            },
+        ),
+        (
+            'thread',
+            {
+                'executor_cls': futurist.ThreadPoolExecutor,
+                'executor_kwargs': {
+                    'check_and_reject': rejector,
+                    'max_workers': 1,
+                },
+                'event_cls': threading.Event,
+            },
+        ),
     ]
 
     def setUp(self):
@@ -202,16 +254,19 @@ class TestRejection(testscenarios.TestWithScenarios, base.TestCase):
         ev_thread_started.wait()
         self.executor.submit(wait_until_set, 0.1)
 
-        self.assertRaises(futurist.RejectedSubmission,
-                          self.executor.submit, returns_one)
+        self.assertRaises(
+            futurist.RejectedSubmission, self.executor.submit, returns_one
+        )
 
 
-@mock.patch.object(futurist.DynamicThreadPoolExecutor, '_add_thread',
-                   # Use the original function behind the scene
-                   side_effect=futurist.DynamicThreadPoolExecutor._add_thread,
-                   autospec=True)
+@mock.patch.object(
+    futurist.DynamicThreadPoolExecutor,
+    '_add_thread',
+    # Use the original function behind the scene
+    side_effect=futurist.DynamicThreadPoolExecutor._add_thread,
+    autospec=True,
+)
 class TestDynamicThreadPool(base.TestCase):
-
     def _new(self, *args, **kwargs):
         executor = futurist.DynamicThreadPoolExecutor(*args, **kwargs)
         self.addCleanup(executor.shutdown, wait=True)

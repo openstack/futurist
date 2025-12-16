@@ -32,15 +32,15 @@ from futurist._futures import ExecutorStatistics
 
 
 __all__ = [
-    'Future', 'GreenFuture',
-
-    'CancelledError', 'TimeoutError',
-
-    'GreenThreadPoolExecutor', 'ProcessPoolExecutor',
-    'SynchronousExecutor', 'ThreadPoolExecutor',
+    'Future',
+    'GreenFuture',
+    'CancelledError',
+    'TimeoutError',
+    'GreenThreadPoolExecutor',
+    'ProcessPoolExecutor',
+    'SynchronousExecutor',
+    'ThreadPoolExecutor',
     'DynamicThreadPoolExecutor',
-
     'RejectedSubmission',
-
     'ExecutorStatistics',
 ]

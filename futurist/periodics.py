@@ -23,6 +23,7 @@ import random
 import threading
 
 from concurrent import futures
+
 try:
     import prettytable
 except ImportError:
@@ -43,12 +44,24 @@ class NeverAgain(Exception):
     """
 
 
-_REQUIRED_ATTRS = ('_is_periodic', '_periodic_spacing',
-                   '_periodic_run_immediately')
+_REQUIRED_ATTRS = (
+    '_is_periodic',
+    '_periodic_spacing',
+    '_periodic_run_immediately',
+)
 
-_DEFAULT_COLS = ('Name', 'Active', 'Periodicity', 'Runs in',
-                 'Runs', 'Failures', 'Successes', 'Stop Requested',
-                 'Average elapsed', 'Average elapsed waiting')
+_DEFAULT_COLS = (
+    'Name',
+    'Active',
+    'Periodicity',
+    'Runs in',
+    'Runs',
+    'Failures',
+    'Successes',
+    'Stop Requested',
+    'Average elapsed',
+    'Average elapsed waiting',
+)
 
 # Constants that are used to determine what 'kind' the current callback
 # is being ran as.
@@ -56,8 +69,9 @@ PERIODIC = 'periodic'
 IMMEDIATE = 'immediate'
 
 
-class Work(collections.namedtuple("Work",
-                                  ['name', 'callback', 'args', 'kwargs'])):
+class Work(
+    collections.namedtuple("Work", ['name', 'callback', 'args', 'kwargs'])
+):
     """Named unit of work that can be periodically scheduled and watched."""
 
     def __call__(self):
@@ -72,10 +86,11 @@ class Watcher:
         self._work = work
 
     def __repr__(self):
-        return ("<Watcher(metrics=%(metrics)s, work=%(work)s)"
-                " object at 0x%(ident)x>") % dict(ident=id(self),
-                                                  work=self._work,
-                                                  metrics=self._metrics)
+        return (
+            "<Watcher(metrics={metrics}, work={work}) object at 0x{ident:x}>"
+        ).format(
+            **dict(ident=id(self), work=self._work, metrics=self._metrics)
+        )
 
     @property
     def requested_stop(self):
@@ -165,8 +180,10 @@ def periodic(spacing, run_immediately=False, enabled=True):
     """
 
     if spacing <= 0 and enabled:
-        raise ValueError("Periodicity/spacing must be greater than"
-                         " zero instead of %s" % spacing)
+        raise ValueError(
+            "Periodicity/spacing must be greater than"
+            f" zero instead of {spacing}"
+        )
 
     def wrapper(f):
         f._is_periodic = enabled
@@ -189,8 +206,10 @@ def _add_jitter(max_percent_jitter):
     callbacks do not synchronize.
     """
     if max_percent_jitter > 1 or max_percent_jitter < 0:
-        raise ValueError("Invalid 'max_percent_jitter', must be greater or"
-                         " equal to 0.0 and less than or equal to 1.0")
+        raise ValueError(
+            "Invalid 'max_percent_jitter', must be greater or"
+            " equal to 0.0 and less than or equal to 1.0"
+        )
 
     def wrapper(func):
         rnd = random.SystemRandom()
@@ -259,7 +278,7 @@ class _Schedule:
         return len(self._ordering)
 
     def fetch_next_run(self, index):
-        for (next_run, a_index) in self._ordering:
+        for next_run, a_index in self._ordering:
             if a_index == index:
                 return next_run
         return None
@@ -271,11 +290,21 @@ class _Schedule:
 def _on_failure_log(log, cb, kind, spacing, exc_info, traceback=None):
     cb_name = utils.get_callback_name(cb)
     if all(exc_info) or not traceback:
-        log.error("Failed to call %s '%s' (it runs every %0.2f"
-                  " seconds)", kind, cb_name, spacing, exc_info=exc_info)
+        log.error(
+            "Failed to call %s '%s' (it runs every %0.2f seconds)",
+            kind,
+            cb_name,
+            spacing,
+            exc_info=exc_info,
+        )
     else:
-        log.error("Failed to call %s '%s' (it runs every %0.2f"
-                  " seconds):\n%s", kind, cb_name, spacing, traceback)
+        log.error(
+            "Failed to call %s '%s' (it runs every %0.2f seconds):\n%s",
+            kind,
+            cb_name,
+            spacing,
+            traceback,
+        )
 
 
 class _Runner:
@@ -410,11 +439,20 @@ class PeriodicWorker:
     """
 
     @classmethod
-    def create(cls, objects, exclude_hidden=True,
-               log=None, executor_factory=None,
-               cond_cls=threading.Condition, event_cls=threading.Event,
-               schedule_strategy='last_started', now_func=utils.now,
-               on_failure=None, args=_NO_OP_ARGS, kwargs=_NO_OP_KWARGS):
+    def create(
+        cls,
+        objects,
+        exclude_hidden=True,
+        log=None,
+        executor_factory=None,
+        cond_cls=threading.Condition,
+        event_cls=threading.Event,
+        schedule_strategy='last_started',
+        now_func=utils.now,
+        on_failure=None,
+        args=_NO_OP_ARGS,
+        kwargs=_NO_OP_KWARGS,
+    ):
         """Automatically creates a worker by analyzing object(s) methods.
 
         Only picks up methods that have been tagged/decorated with
@@ -479,22 +517,35 @@ class PeriodicWorker:
         """
         callables = []
         for obj in objects:
-            for (name, member) in inspect.getmembers(obj):
+            for name, member in inspect.getmembers(obj):
                 if name.startswith("_") and exclude_hidden:
                     continue
                 if callable(member):
                     missing_attrs = _check_attrs(member)
                     if not missing_attrs:
                         callables.append((member, args, kwargs))
-        return cls(callables, log=log, executor_factory=executor_factory,
-                   cond_cls=cond_cls, event_cls=event_cls,
-                   schedule_strategy=schedule_strategy, now_func=now_func,
-                   on_failure=on_failure)
+        return cls(
+            callables,
+            log=log,
+            executor_factory=executor_factory,
+            cond_cls=cond_cls,
+            event_cls=event_cls,
+            schedule_strategy=schedule_strategy,
+            now_func=now_func,
+            on_failure=on_failure,
+        )
 
-    def __init__(self, callables, log=None, executor_factory=None,
-                 cond_cls=threading.Condition, event_cls=threading.Event,
-                 schedule_strategy='last_started', now_func=utils.now,
-                 on_failure=None):
+    def __init__(
+        self,
+        callables,
+        log=None,
+        executor_factory=None,
+        cond_cls=threading.Condition,
+        event_cls=threading.Event,
+        schedule_strategy='last_started',
+        now_func=utils.now,
+        on_failure=None,
+    ):
         """Creates a new worker using the given periodic callables.
 
         :param callables: a iterable of tuple objects previously decorated
@@ -555,8 +606,9 @@ class PeriodicWorker:
         :type on_failure: callable
         """
         if on_failure is not None and not callable(on_failure):
-            raise ValueError("On failure callback %r must be"
-                             " callable" % on_failure)
+            raise ValueError(
+                f"On failure callback {on_failure!r} must be callable"
+            )
         self._tombstone = event_cls()
         self._waiter = cond_cls()
         self._dead = event_cls()
@@ -564,13 +616,15 @@ class PeriodicWorker:
         self._cond_cls = cond_cls
         self._watchers = []
         self._works = []
-        for (cb, args, kwargs) in callables:
+        for cb, args, kwargs in callables:
             if not callable(cb):
-                raise ValueError("Periodic callback %r must be callable" % cb)
+                raise ValueError(f"Periodic callback {cb!r} must be callable")
             missing_attrs = _check_attrs(cb)
             if missing_attrs:
-                raise ValueError("Periodic callback %r missing required"
-                                 " attributes %s" % (cb, missing_attrs))
+                raise ValueError(
+                    f"Periodic callback {cb!r} missing required"
+                    f" attributes {missing_attrs}"
+                )
             if cb._is_periodic:
                 # Ensure these aren't none and if so replace them with
                 # something more appropriate...
@@ -589,14 +643,19 @@ class PeriodicWorker:
             self._initial_schedule_strategy = strategy[1]
         except KeyError:
             valid_strategies = sorted(self.BUILT_IN_STRATEGIES.keys())
-            raise ValueError("Scheduling strategy '%s' must be one of"
-                             " %s selectable strategies"
-                             % (schedule_strategy, valid_strategies))
+            raise ValueError(
+                f"Scheduling strategy '{schedule_strategy}' must be one of"
+                f" {valid_strategies} selectable strategies"
+            )
         self._immediates, self._schedule = _build(
-            now_func, self._works, self._initial_schedule_strategy)
+            now_func, self._works, self._initial_schedule_strategy
+        )
         self._log = log or LOG
         if executor_factory is None:
-            executor_factory = lambda: futurist.SynchronousExecutor()
+
+            def executor_factory():
+                return futurist.SynchronousExecutor()
+
         if on_failure is None:
             on_failure = functools.partial(_on_failure_log, self._log)
         self._on_failure = on_failure
@@ -618,9 +677,11 @@ class PeriodicWorker:
             # the callable that needs to run next and has the lowest
             # next desired run time).
             with self._waiter:
-                while (not self._schedule and
-                       not self._tombstone.is_set() and
-                       not self._immediates):
+                while (
+                    not self._schedule
+                    and not self._tombstone.is_set()
+                    and not self._immediates
+                ):
                     self._waiter.wait(self.MAX_LOOP_IDLE)
                 if self._tombstone.is_set():
                     # We were requested to stop, so stop.
@@ -635,26 +696,33 @@ class PeriodicWorker:
                 if when_next <= 0:
                     # Run & schedule its next execution.
                     work = self._works[index]
-                    self._log.debug("Submitting periodic"
-                                    " callback '%s'", work.name)
+                    self._log.debug(
+                        "Submitting periodic callback '%s'", work.name
+                    )
                     try:
                         fut = executor.submit(runner.run, work)
                     except _SCHEDULE_RETRY_EXCEPTIONS as exc:
                         # Restart after a short delay
-                        delay = (self._RESCHEDULE_DELAY +
-                                 rnd.random() * self._RESCHEDULE_JITTER)
-                        self._log.error("Failed to submit periodic callback "
-                                        "'%s', retrying after %.2f sec. "
-                                        "Error: %s",
-                                        work.name, delay, exc)
-                        self._schedule.push(self._now_func() + delay,
-                                            index)
+                        delay = (
+                            self._RESCHEDULE_DELAY
+                            + rnd.random() * self._RESCHEDULE_JITTER
+                        )
+                        self._log.error(
+                            "Failed to submit periodic callback "
+                            "'%s', retrying after %.2f sec. "
+                            "Error: %s",
+                            work.name,
+                            delay,
+                            exc,
+                        )
+                        self._schedule.push(self._now_func() + delay, index)
                     else:
                         barrier.incr()
-                        fut.add_done_callback(functools.partial(_on_done,
-                                                                PERIODIC,
-                                                                work, index,
-                                                                submitted_at))
+                        fut.add_done_callback(
+                            functools.partial(
+                                _on_done, PERIODIC, work, index, submitted_at
+                            )
+                        )
                 else:
                     # Gotta wait...
                     self._schedule.push(next_run, index)
@@ -670,22 +738,27 @@ class PeriodicWorker:
                 else:
                     work = self._works[index]
                     submitted_at = self._now_func()
-                    self._log.debug("Submitting immediate"
-                                    " callback '%s'", work.name)
+                    self._log.debug(
+                        "Submitting immediate callback '%s'", work.name
+                    )
                     try:
                         fut = executor.submit(runner.run, work)
                     except _SCHEDULE_RETRY_EXCEPTIONS as exc:
-                        self._log.error("Failed to submit immediate callback "
-                                        "'%s', retrying. Error: %s", work.name,
-                                        exc)
+                        self._log.error(
+                            "Failed to submit immediate callback "
+                            "'%s', retrying. Error: %s",
+                            work.name,
+                            exc,
+                        )
                         # Restart as soon as possible
                         self._immediates.append(index)
                     else:
                         barrier.incr()
-                        fut.add_done_callback(functools.partial(_on_done,
-                                                                IMMEDIATE,
-                                                                work, index,
-                                                                submitted_at))
+                        fut.add_done_callback(
+                            functools.partial(
+                                _on_done, IMMEDIATE, work, index, submitted_at
+                            )
+                        )
 
         def _on_done(kind, work, index, submitted_at, fut):
             cb = work.callback
@@ -697,20 +770,30 @@ class PeriodicWorker:
                 if not issubclass(failure.exc_type, NeverAgain):
                     cb_metrics['failures'] += 1
                     try:
-                        self._on_failure(cb, kind, cb._periodic_spacing,
-                                         failure.exc_info,
-                                         traceback=failure.traceback)
+                        self._on_failure(
+                            cb,
+                            kind,
+                            cb._periodic_spacing,
+                            failure.exc_info,
+                            traceback=failure.traceback,
+                        )
                     except Exception as exc:
-                        self._log.error("On failure callback %r raised an"
-                                        " unhandled exception. Error: %s",
-                                        self._on_failure, exc)
+                        self._log.error(
+                            "On failure callback %r raised an"
+                            " unhandled exception. Error: %s",
+                            self._on_failure,
+                            exc,
+                        )
                 else:
                     cb_metrics['successes'] += 1
                     schedule_again = False
-                    self._log.debug("Periodic callback '%s' raised "
-                                    "'NeverAgain' "
-                                    "exception, stopping any further "
-                                    "execution of it.", work.name)
+                    self._log.debug(
+                        "Periodic callback '%s' raised "
+                        "'NeverAgain' "
+                        "exception, stopping any further "
+                        "execution of it.",
+                        work.name,
+                    )
             else:
                 cb_metrics['successes'] += 1
             elapsed = max(0, finished_at - started_at)
@@ -720,16 +803,18 @@ class PeriodicWorker:
             with self._waiter:
                 with barrier.decr_cm() as am_left:
                     if schedule_again:
-                        next_run = self._schedule_strategy(cb, started_at,
-                                                           finished_at,
-                                                           cb_metrics)
+                        next_run = self._schedule_strategy(
+                            cb, started_at, finished_at, cb_metrics
+                        )
                         self._schedule.push(next_run, index)
                     else:
                         cb_metrics['requested_stop'] = True
-                        if (am_left <= 0 and
-                                len(self._immediates) == 0 and
-                                len(self._schedule) == 0 and
-                                auto_stop_when_empty):
+                        if (
+                            am_left <= 0
+                            and len(self._immediates) == 0
+                            and len(self._schedule) == 0
+                            and auto_stop_when_empty
+                        ):
                             # Guess nothing left to do, goodbye...
                             self._tombstone.set()
                 self._waiter.notify_all()
@@ -751,25 +836,31 @@ class PeriodicWorker:
         self._log.debug(
             "Stopped running %s callbacks:\n%s",
             len(self._works),
-            self.pformat(columns=cols) if prettytable
-            else "statistics not available, PrettyTable missing"
+            self.pformat(columns=cols)
+            if prettytable
+            else "statistics not available, PrettyTable missing",
         )
 
     def pformat(self, columns=_DEFAULT_COLS):
         if prettytable is None:
             raise ImportError(
-                "PrettyTable is required to use the pformat method")
+                "PrettyTable is required to use the pformat method"
+            )
         # Convert to a list to ensure we maintain the same order when used
         # further in this function (since order will matter)...
         if not isinstance(columns, (list, tuple)):
             columns = list(columns)
         if not columns:
-            raise ValueError("At least one of %s columns must"
-                             " be provided" % (set(_DEFAULT_COLS)))
+            raise ValueError(
+                f"At least one of {set(_DEFAULT_COLS)} columns must"
+                " be provided"
+            )
         for c in columns:
             if c not in _DEFAULT_COLS:
-                raise ValueError("Unknown column '%s', valid column names"
-                                 " are %s" % (c, set(_DEFAULT_COLS)))
+                raise ValueError(
+                    f"Unknown column '{c}', valid column names"
+                    f" are {set(_DEFAULT_COLS)}"
+                )
         tbl_rows = []
         now = self._now_func()
         for index, work in enumerate(self._works):
@@ -783,7 +874,7 @@ class PeriodicWorker:
                 runs_in = 'n/a'
             else:
                 active = False
-                runs_in = "%0.4fs" % (max(0.0, next_run - now))
+                runs_in = f"{max(0.0, next_run - now):0.4f}s"
             cb_row = {
                 'Name': work.name,
                 'Active': active,
@@ -796,8 +887,8 @@ class PeriodicWorker:
             }
             try:
                 cb_row_avgs = [
-                    "%0.4fs" % watcher.average_elapsed,
-                    "%0.4fs" % watcher.average_elapsed_waiting,
+                    f"{watcher.average_elapsed:0.4f}s",
+                    f"{watcher.average_elapsed_waiting:0.4f}s",
                 ]
             except ZeroDivisionError:
                 cb_row_avgs = ['.', '.']
@@ -826,11 +917,13 @@ class PeriodicWorker:
         :type cb: callable
         """
         if not callable(cb):
-            raise ValueError("Periodic callback %r must be callable" % cb)
+            raise ValueError(f"Periodic callback {cb!r} must be callable")
         missing_attrs = _check_attrs(cb)
         if missing_attrs:
-            raise ValueError("Periodic callback %r missing required"
-                             " attributes %s" % (cb, missing_attrs))
+            raise ValueError(
+                f"Periodic callback {cb!r} missing required"
+                f" attributes {missing_attrs}"
+            )
         if not cb._is_periodic:
             return None
         now = self._now_func()
@@ -872,11 +965,12 @@ class PeriodicWorker:
         :type auto_stop_when_empty: bool
         """
         if not self._works and not allow_empty:
-            raise RuntimeError("A periodic worker can not start"
-                               " without any callables to process")
+            raise RuntimeError(
+                "A periodic worker can not start"
+                " without any callables to process"
+            )
         if self._active.is_set():
-            raise RuntimeError("A periodic worker can not be started"
-                               " twice")
+            raise RuntimeError("A periodic worker can not be started twice")
         executor = self._executor_factory()
         # NOTE(harlowja): we compare with the futures process pool executor
         # since its the base type of futurist ProcessPoolExecutor and it is
@@ -922,7 +1016,8 @@ class PeriodicWorker:
                 # keys) is able to see those changes.
                 cb_metrics[k] = 0
         self._immediates, self._schedule = _build(
-            self._now_func, self._works, self._initial_schedule_strategy)
+            self._now_func, self._works, self._initial_schedule_strategy
+        )
 
     def wait(self, timeout=None):
         """Waits for the :py:meth:`.start` method to gracefully exit.

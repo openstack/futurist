@@ -57,36 +57,55 @@ def create_destroy_green_thread(run_what, *args, **kwargs):
 
 class TestPeriodicsStrategies(base.TestCase):
     def test_invalids(self):
-        self.assertRaises(ValueError,
-                          periodics.PeriodicWorker, [],
-                          schedule_strategy='not_a_strategy')
+        self.assertRaises(
+            ValueError,
+            periodics.PeriodicWorker,
+            [],
+            schedule_strategy='not_a_strategy',
+        )
 
 
 class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
     scenarios = [
-        ('sync', {'executor_cls': futurist.SynchronousExecutor,
-                  'executor_kwargs': {},
-                  'create_destroy': create_destroy_thread,
-                  'sleep': time.sleep,
-                  'event_cls': threading.Event,
-                  'worker_kwargs': {}}),
-        ('thread', {'executor_cls': futurist.ThreadPoolExecutor,
-                    'executor_kwargs': {'max_workers': 2},
-                    'create_destroy': create_destroy_thread,
-                    'sleep': time.sleep,
-                    'event_cls': threading.Event,
-                    'worker_kwargs': {}}),
-        ('green', {'executor_cls': futurist.GreenThreadPoolExecutor,
-                   'executor_kwargs': {'max_workers': 10},
-                   'sleep': eventlet.sleep,
-                   'event_cls': green_threading.Event,
-                   'create_destroy': create_destroy_green_thread,
-                   'worker_kwargs': {'cond_cls': green_threading.Condition,
-                                     'event_cls': green_threading.Event}}),
+        (
+            'sync',
+            {
+                'executor_cls': futurist.SynchronousExecutor,
+                'executor_kwargs': {},
+                'create_destroy': create_destroy_thread,
+                'sleep': time.sleep,
+                'event_cls': threading.Event,
+                'worker_kwargs': {},
+            },
+        ),
+        (
+            'thread',
+            {
+                'executor_cls': futurist.ThreadPoolExecutor,
+                'executor_kwargs': {'max_workers': 2},
+                'create_destroy': create_destroy_thread,
+                'sleep': time.sleep,
+                'event_cls': threading.Event,
+                'worker_kwargs': {},
+            },
+        ),
+        (
+            'green',
+            {
+                'executor_cls': futurist.GreenThreadPoolExecutor,
+                'executor_kwargs': {'max_workers': 10},
+                'sleep': eventlet.sleep,
+                'event_cls': green_threading.Event,
+                'create_destroy': create_destroy_green_thread,
+                'worker_kwargs': {
+                    'cond_cls': green_threading.Condition,
+                    'event_cls': green_threading.Event,
+                },
+            },
+        ),
     ]
 
-    def _test_strategy(self, schedule_strategy, nows,
-                       last_now, expected_next):
+    def _test_strategy(self, schedule_strategy, nows, last_now, expected_next):
         nows = list(nows)
         ev = self.event_cls()
 
@@ -233,8 +252,9 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
     def test_failure_callback_fail(self):
         worker_kwargs = self.worker_kwargs.copy()
         worker_kwargs['on_failure'] = 'not-a-func'
-        self.assertRaises(ValueError,
-                          periodics.PeriodicWorker, [], **worker_kwargs)
+        self.assertRaises(
+            ValueError, periodics.PeriodicWorker, [], **worker_kwargs
+        )
 
     def test_failure_callback(self):
         captures = []
@@ -244,8 +264,9 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
         def failing_always():
             raise RuntimeError("Broke!")
 
-        def trap_failures(cb, kind, periodic_spacing,
-                          exc_info, traceback=None):
+        def trap_failures(
+            cb, kind, periodic_spacing, exc_info, traceback=None
+        ):
             captures.append([cb, kind, periodic_spacing, traceback])
             ev.set()
 
@@ -259,8 +280,9 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
             ev.wait()
             w.stop()
 
-        self.assertEqual(captures[0], [failing_always, periodics.PERIODIC,
-                                       0.1, mock.ANY])
+        self.assertEqual(
+            captures[0], [failing_always, periodics.PERIODIC, 0.1, mock.ANY]
+        )
 
     def test_aligned_strategy(self):
         last_now = 5.5
@@ -287,7 +309,7 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
 
         callables = []
         for i in range(0, 10):
-            i_cb = functools.partial(cb, '%s_has_called' % i)
+            i_cb = functools.partial(cb, f'{i}_has_called')
             callables.append((every_half_sec, (i_cb,), {}))
 
         leftover_callables = list(callables)
@@ -304,7 +326,6 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
             w.stop()
 
     def test_disabled(self):
-
         @periodics.periodic(0.5, enabled=False)
         def no_add_me():
             pass
@@ -322,7 +343,6 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
         self.assertEqual(1, len(w))
 
     def test_interval_checking(self):
-
         @periodics.periodic(-0.5, enabled=False)
         def no_add_me():
             pass
@@ -335,7 +355,6 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
         self.assertRaises(ValueError, periodics.periodic, -0.5)
 
     def test_is_periodic(self):
-
         @periodics.periodic(0.5, enabled=False)
         def no_add_me():
             pass
@@ -350,7 +369,6 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
         self.assertFalse(periodics.is_periodic(42))
 
     def test_watcher(self):
-
         def cb():
             pass
 
@@ -358,10 +376,13 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
             (every_one_sec, (cb,), None),
             (every_half_sec, (cb,), None),
         ]
-        executor_factory = lambda: self.executor_cls(**self.executor_kwargs)
-        w = periodics.PeriodicWorker(callables,
-                                     executor_factory=executor_factory,
-                                     **self.worker_kwargs)
+
+        def executor_factory():
+            return self.executor_cls(**self.executor_kwargs)
+
+        w = periodics.PeriodicWorker(
+            callables, executor_factory=executor_factory, **self.worker_kwargs
+        )
         with self.create_destroy(w.start):
             self.sleep(2.0)
             w.stop()
@@ -388,10 +409,13 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
             (every_half_sec, (cb,), None),
         ]
         executor = self.executor_cls(**self.executor_kwargs)
-        executor_factory = lambda: executor
-        w = periodics.PeriodicWorker(callables,
-                                     executor_factory=executor_factory,
-                                     **self.worker_kwargs)
+
+        def executor_factory():
+            return executor
+
+        w = periodics.PeriodicWorker(
+            callables, executor_factory=executor_factory, **self.worker_kwargs
+        )
         with self.create_destroy(w.start):
             self.sleep(2.0)
             w.stop()
@@ -413,9 +437,9 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
         ]
         executor = self.executor_cls(**self.executor_kwargs)
         executor_factory = periodics.ExistingExecutor(executor)
-        w = periodics.PeriodicWorker(callables,
-                                     executor_factory=executor_factory,
-                                     **self.worker_kwargs)
+        w = periodics.PeriodicWorker(
+            callables, executor_factory=executor_factory, **self.worker_kwargs
+        )
         with self.create_destroy(w.start):
             self.sleep(2.0)
             w.stop()
@@ -433,12 +457,16 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
             def func1(self, *args, **kwargs):
                 m(*args, **kwargs)
 
-        executor_factory = lambda: self.executor_cls(**self.executor_kwargs)
-        w = periodics.PeriodicWorker.create(objects=[Object()],
-                                            executor_factory=executor_factory,
-                                            args=('foo',),
-                                            kwargs={'bar': 'baz'},
-                                            **self.worker_kwargs)
+        def executor_factory():
+            return self.executor_cls(**self.executor_kwargs)
+
+        w = periodics.PeriodicWorker.create(
+            objects=[Object()],
+            executor_factory=executor_factory,
+            args=('foo',),
+            kwargs={'bar': 'baz'},
+            **self.worker_kwargs,
+        )
         with self.create_destroy(w.start):
             self.sleep(2.0)
             w.stop()
@@ -446,7 +474,6 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
         m.assert_called_with('foo', bar='baz')
 
     def test_never_again_exc(self):
-
         m_1 = mock.MagicMock()
         m_2 = mock.MagicMock()
 
@@ -463,10 +490,13 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
             (run_only_once, None, None),
             (keep_running, None, None),
         ]
-        executor_factory = lambda: self.executor_cls(**self.executor_kwargs)
-        w = periodics.PeriodicWorker(callables,
-                                     executor_factory=executor_factory,
-                                     **self.worker_kwargs)
+
+        def executor_factory():
+            return self.executor_cls(**self.executor_kwargs)
+
+        w = periodics.PeriodicWorker(
+            callables, executor_factory=executor_factory, **self.worker_kwargs
+        )
         with self.create_destroy(w.start):
             self.sleep(2.0)
             w.stop()
@@ -480,7 +510,6 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
         self.assertGreaterEqual(m_2.call_count, 3)
 
     def test_start_with_auto_stop_when_empty_set(self):
-
         @periodics.periodic(0.5)
         def run_only_once():
             raise periodics.NeverAgain("No need to run again !!")
@@ -489,10 +518,13 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
             (run_only_once, None, None),
             (run_only_once, None, None),
         ]
-        executor_factory = lambda: self.executor_cls(**self.executor_kwargs)
-        w = periodics.PeriodicWorker(callables,
-                                     executor_factory=executor_factory,
-                                     **self.worker_kwargs)
+
+        def executor_factory():
+            return self.executor_cls(**self.executor_kwargs)
+
+        w = periodics.PeriodicWorker(
+            callables, executor_factory=executor_factory, **self.worker_kwargs
+        )
         with self.create_destroy(w.start, auto_stop_when_empty=True):
             self.sleep(2.0)
 
@@ -512,10 +544,13 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
         callables = [
             (run_only_once, None, None),
         ]
-        executor_factory = lambda: self.executor_cls(**self.executor_kwargs)
-        w = periodics.PeriodicWorker(callables,
-                                     executor_factory=executor_factory,
-                                     **self.worker_kwargs)
+
+        def executor_factory():
+            return self.executor_cls(**self.executor_kwargs)
+
+        w = periodics.PeriodicWorker(
+            callables, executor_factory=executor_factory, **self.worker_kwargs
+        )
         with self.create_destroy(w.start, auto_stop_when_empty=True):
             self.sleep(2.0)
             w.add(every_half_sec, m, None)
@@ -538,7 +573,6 @@ class RejectingExecutor(futurist.GreenThreadPoolExecutor):
 
 class TestPformat(base.TestCase):
     def test_invalid(self):
-
         @periodics.periodic(1)
         def a():
             pass
@@ -551,11 +585,7 @@ class TestPformat(base.TestCase):
         def c():
             pass
 
-        callables = [
-            (a, None, None),
-            (b, None, None),
-            (c, None, None)
-        ]
+        callables = [(a, None, None), (b, None, None), (c, None, None)]
         w = periodics.PeriodicWorker(callables)
 
         self.assertRaises(ValueError, w.pformat, columns=[])
@@ -573,10 +603,12 @@ class TestRetrySubmission(base.TestCase):
             (every_one_sec, (cb,), None),
             (every_half_sec, (cb,), None),
         ]
-        w = periodics.PeriodicWorker(callables,
-                                     executor_factory=RejectingExecutor,
-                                     cond_cls=green_threading.Condition,
-                                     event_cls=green_threading.Event)
+        w = periodics.PeriodicWorker(
+            callables,
+            executor_factory=RejectingExecutor,
+            cond_cls=green_threading.Condition,
+            event_cls=green_threading.Event,
+        )
         w._RESCHEDULE_DELAY = 0
         w._RESCHEDULE_JITTER = 0
         with create_destroy_green_thread(w.start):

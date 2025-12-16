@@ -30,12 +30,15 @@ except ImportError:
 
 #: Named tuple returned from ``wait_for*`` calls.
 DoneAndNotDoneFutures = collections.namedtuple(
-    'DoneAndNotDoneFutures', 'done not_done')
+    'DoneAndNotDoneFutures', 'done not_done'
+)
 
-_DONE_STATES = frozenset([
-    _base.CANCELLED_AND_NOTIFIED,
-    _base.FINISHED,
-])
+_DONE_STATES = frozenset(
+    [
+        _base.CANCELLED_AND_NOTIFIED,
+        _base.FINISHED,
+    ]
+)
 
 
 @contextlib.contextmanager
@@ -62,20 +65,23 @@ def _ensure_eventlet(func):
     return wrapper
 
 
-def _wait_for(fs, no_green_return_when, on_all_green_cb,
-              caller_name, timeout=None):
+def _wait_for(
+    fs, no_green_return_when, on_all_green_cb, caller_name, timeout=None
+):
     green_fs = sum(1 for f in fs if isinstance(f, futurist.GreenFuture))
     if not green_fs:
-        done, not_done = futures.wait(fs, timeout=timeout,
-                                      return_when=no_green_return_when)
+        done, not_done = futures.wait(
+            fs, timeout=timeout, return_when=no_green_return_when
+        )
         return DoneAndNotDoneFutures(done, not_done)
     else:
         non_green_fs = len(fs) - green_fs
         if non_green_fs:
-            raise RuntimeError("Can not wait on %s green futures and %s"
-                               " non-green futures in the same"
-                               " `%s` call" % (green_fs, non_green_fs,
-                                               caller_name))
+            raise RuntimeError(
+                f"Can not wait on {green_fs} green futures and {non_green_fs}"
+                " non-green futures in the same"
+                f" `{caller_name}` call"
+            )
         else:
             return on_all_green_cb(fs, timeout=timeout)
 
@@ -90,8 +96,13 @@ def wait_for_all(fs, timeout=None):
 
     Returns pair (done futures, not done futures).
     """
-    return _wait_for(fs, futures.ALL_COMPLETED, _wait_for_all_green,
-                     'wait_for_all', timeout=timeout)
+    return _wait_for(
+        fs,
+        futures.ALL_COMPLETED,
+        _wait_for_all_green,
+        'wait_for_all',
+        timeout=timeout,
+    )
 
 
 def wait_for_any(fs, timeout=None):
@@ -104,8 +115,13 @@ def wait_for_any(fs, timeout=None):
 
     Returns pair (done futures, not done futures).
     """
-    return _wait_for(fs, futures.FIRST_COMPLETED, _wait_for_any_green,
-                     'wait_for_any', timeout=timeout)
+    return _wait_for(
+        fs,
+        futures.FIRST_COMPLETED,
+        _wait_for_any_green,
+        'wait_for_any',
+        timeout=timeout,
+    )
 
 
 class _AllGreenWaiter:
@@ -175,9 +191,9 @@ def _wait_for_all_green(fs, timeout=None):
         done, not_done = _partition_futures(fs)
         if len(done) == len(fs):
             return DoneAndNotDoneFutures(done, not_done)
-        waiter = _create_and_install_waiters(not_done,
-                                             _AllGreenWaiter,
-                                             len(not_done))
+        waiter = _create_and_install_waiters(
+            not_done, _AllGreenWaiter, len(not_done)
+        )
     waiter.event.wait(timeout)
     for f in not_done:
         with f._condition:
