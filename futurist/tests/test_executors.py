@@ -364,7 +364,7 @@ class TestDynamicThreadPoolMaintain(base.TestCase):
         executor.maintain()
         self.assertEqual(42, len(executor._workers))
         mock_create_thread.return_value.start.assert_not_called()
-        self.assertEqual(58, executor._workers[0].stop.call_count)
+        self.assertEqual(58, executor._workers[0].stop.call_count)  # type: ignore[attr-defined]
 
     def test_all_busy_workers(self, mock_create_thread):
         executor = futurist.DynamicThreadPoolExecutor(max_workers=100)
@@ -372,7 +372,7 @@ class TestDynamicThreadPoolMaintain(base.TestCase):
         executor.maintain()
         self.assertEqual(100, len(executor._workers))
         mock_create_thread.return_value.start.assert_not_called()
-        executor._workers[0].stop.assert_not_called()
+        executor._workers[0].stop.assert_not_called()  # type: ignore[attr-defined]
 
     def test_busy_workers_create_more(self, mock_create_thread):
         executor = futurist.DynamicThreadPoolExecutor(max_workers=200)
@@ -399,7 +399,7 @@ class TestDynamicThreadPoolMaintain(base.TestCase):
         executor = futurist.DynamicThreadPoolExecutor(max_workers=200)
         executor._workers = [mock.Mock(idle=i < 30) for i in range(100)]
         for i in range(20):
-            executor._work_queue.put(None)
+            executor._work_queue.put(None)  # type: ignore[arg-type]
         executor.maintain()
         # NOTE(dtantsur): initial busy ratio is (70+20)/100=0.9. As workers
         # are added, it reaches (70+20)/113, which is just below 0.8.

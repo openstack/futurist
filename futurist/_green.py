@@ -62,22 +62,26 @@ if _utils.EVENTLET_AVAILABLE:
         ) -> stdlib_threading.Condition:
             return greenthreading.Condition(lock=lock)  # type: ignore
 
-    threading = GreenThreading()
+    threading: GreenThreading | None = GreenThreading()
 else:
     threading = None
     Pool = None
     Queue = None
 
-    def is_monkey_patched(mod):
+    def is_monkey_patched(mod: str) -> bool:
         return False
 
 
 class GreenWorker:
-    def __init__(self, work, work_queue):
+    def __init__(
+        self,
+        work: _utils.WorkItem,
+        work_queue: greenqueue.Queue[_utils.WorkItem],
+    ) -> None:
         self.work = work
         self.work_queue = work_queue
 
-    def __call__(self):
+    def __call__(self) -> None:
         # Run our main piece of work.
         try:
             self.work.run()

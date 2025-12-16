@@ -14,6 +14,7 @@ import contextlib
 import functools
 import threading
 import time
+from typing import Any
 from unittest import mock
 
 import eventlet
@@ -307,7 +308,7 @@ class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
         def cb(name):
             called.add(name)
 
-        callables = []
+        callables: list[tuple[Any, tuple[Any, ...], dict[str, Any]]] = []
         for i in range(0, 10):
             i_cb = functools.partial(cb, f'{i}_has_called')
             callables.append((every_half_sec, (i_cb,), {}))

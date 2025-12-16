@@ -12,11 +12,15 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from __future__ import annotations
+
+from collections.abc import Callable
 import functools
 import logging
 import queue
 import threading
 import time
+from typing import Any, ParamSpec, TYPE_CHECKING, TypeVar
 
 from concurrent import futures as _futures
 from concurrent.futures import process as _process
@@ -27,11 +31,16 @@ from futurist import _green
 from futurist import _thread
 from futurist import _utils
 
-TimeoutError = _futures.TimeoutError
-CancelledError = _futures.CancelledError
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
+_P = ParamSpec('_P')
+_R = TypeVar('_R')
 
 LOG = logging.getLogger(__name__)
+
+TimeoutError = _futures.TimeoutError
+CancelledError = _futures.CancelledError
 
 
 class RejectedSubmission(Exception):
@@ -43,21 +52,28 @@ Future = _futures.Future
 
 
 class _Gatherer:
-    def __init__(self, submit_func, lock_factory, start_before_submit=False):
+    def __init__(
+        self,
+        submit_func: Callable[..., _futures.Future[Any]],
+        lock_factory: Callable[[], threading.Lock],
+        start_before_submit: bool = False,
+    ) -> None:
         self._submit_func = submit_func
         self._stats_lock = lock_factory()
         self._stats = ExecutorStatistics()
         self._start_before_submit = start_before_submit
 
     @property
-    def statistics(self):
+    def statistics(self) -> ExecutorStatistics:
         return self._stats
 
-    def clear(self):
+    def clear(self) -> None:
         with self._stats_lock:
             self._stats = ExecutorStatistics()
 
-    def _capture_stats(self, started_at, fut):
+    def _capture_stats(
+        self, started_at: float, fut: _futures.Future[Any]
+    ) -> None:
         """Capture statistics
 
         :param started_at: when the activity the future has performed
@@ -94,7 +110,9 @@ class _Gatherer:
                 cancelled=cancelled,
             )
 
-    def submit(self, fn, *args, **kwargs):
+    def submit(
+        self, fn: Callable[_P, _R], *args: _P.args, **kwargs: _P.kwargs
+    ) -> _futures.Future[_R]:
         """Submit work to be executed and capture statistics."""
         if self._start_before_submit:
             started_at = _utils.now()
@@ -121,7 +139,11 @@ class ThreadPoolExecutor(_futures.Executor):
 
     threading = _thread.Threading()
 
-    def __init__(self, max_workers=None, check_and_reject=None):
+    def __init__(
+        self,
+        max_workers: int | None = None,
+        check_and_reject: Callable[[Self, int], None] | None = None,
+    ) -> None:
         """Initializes a thread pool executor.
 
         :param max_workers: maximum number of workers that can be
@@ -141,28 +163,30 @@ class ThreadPoolExecutor(_futures.Executor):
         """
         if max_workers is None:
             max_workers = _utils.get_optimal_thread_count()
+
         if max_workers <= 0:
             raise ValueError("max_workers must be greater than zero")
+
         self._max_workers = max_workers
-        self._work_queue = queue.Queue()
+        self._work_queue: queue.Queue[_utils.WorkItem] = queue.Queue()
         self._shutdown_lock = threading.RLock()
         self._shutdown = False
-        self._workers = []
+        self._workers: list[_thread.ThreadWorker] = []
         self._check_and_reject = check_and_reject or (lambda e, waiting: None)
         self._gatherer = _Gatherer(self._submit, self.threading.lock_object)
 
     @property
-    def statistics(self):
+    def statistics(self) -> ExecutorStatistics:
         """:class:`.ExecutorStatistics` about the executors executions."""
         return self._gatherer.statistics
 
     @property
-    def alive(self):
+    def alive(self) -> bool:
         """Accessor to determine if the executor is alive/active."""
         return not self._shutdown
 
     @property
-    def queue_size(self):
+    def queue_size(self) -> int:
         """The current size of the queue.
 
         This value represents the number of tasks that are waiting for a free
@@ -171,11 +195,11 @@ class ThreadPoolExecutor(_futures.Executor):
         return self._work_queue.qsize()
 
     @property
-    def num_workers(self):
+    def num_workers(self) -> int:
         """The current number of worker threads."""
         return len(self._workers)
 
-    def get_num_idle_workers(self):
+    def get_num_idle_workers(self) -> int:
         """Get the number of currently idle threads.
 
         A thread is idle if it's waiting for new tasks from the queue.
@@ -186,19 +210,23 @@ class ThreadPoolExecutor(_futures.Executor):
         with self._shutdown_lock:
             return sum(1 for w in self._workers if w.idle)
 
-    def _add_thread(self):
+    def _add_thread(self) -> None:
         w = _thread.ThreadWorker.create_and_register(self, self._work_queue)
         # Always save it before we start (so that even if we fail
         # starting it we can correctly join on it).
         self._workers.append(w)
         w.start()
 
-    def _maybe_spin_up(self):
+    def _maybe_spin_up(self) -> bool:
         """Spin up a worker if needed."""
         if not self._workers or len(self._workers) < self._max_workers:
             self._add_thread()
+            return True
+        return False
 
-    def shutdown(self, wait=True):
+    def shutdown(
+        self, wait: bool = True, *, cancel_futures: bool = False
+    ) -> None:
         with self._shutdown_lock:
             if not self._shutdown:
                 self._shutdown = True
@@ -213,13 +241,17 @@ class ThreadPoolExecutor(_futures.Executor):
             for w in self._workers:
                 w.join()
 
-    def _submit(self, fn, *args, **kwargs):
-        f = Future()
+    def _submit(
+        self, fn: Callable[_P, _R], *args: _P.args, **kwargs: _P.kwargs
+    ) -> Future[_R]:
+        f: Future[_R] = Future()
         self._maybe_spin_up()
         self._work_queue.put(_utils.WorkItem(f, fn, *args, **kwargs))
         return f
 
-    def submit(self, fn, *args, **kwargs):
+    def submit(  # type: ignore[override]
+        self, fn: Callable[_P, _R], *args: _P.args, **kwargs: _P.kwargs
+    ) -> Future[_R]:
         """Submit some work to be executed (and gather statistics)."""
         # NOTE(dtantsur): DynamicThreadPoolExecutor relies on this lock for
         # its complex logic around thread management. If you ever decide to
@@ -229,7 +261,7 @@ class ThreadPoolExecutor(_futures.Executor):
                 raise RuntimeError(
                     'Can not schedule new futures after being shutdown'
                 )
-            self._check_and_reject(self, self._work_queue.qsize())
+            self._check_and_reject(self, self._work_queue.qsize())  # type: ignore[arg-type]
             return self._gatherer.submit(fn, *args, **kwargs)
 
 
@@ -267,12 +299,12 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
 
     def __init__(
         self,
-        max_workers=None,
-        check_and_reject=None,
-        min_workers=1,
-        grow_threshold=0.8,
-        shrink_threshold=0.4,
-    ):
+        max_workers: int | None = None,
+        check_and_reject: Callable[[Self, int], None] | None = None,
+        min_workers: int = 1,
+        grow_threshold: float = 0.8,
+        shrink_threshold: float = 0.4,
+    ) -> None:
         """Initializes a thread pool executor.
 
         :param max_workers: maximum number of workers that can be
@@ -322,11 +354,11 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
         self._grow_threshold = grow_threshold
         self._shrink_threshold = shrink_threshold
 
-        self._dead_workers = []
+        self._dead_workers: list[_thread.ThreadWorker] = []
 
-    def _drop_thread(self):
-        new_workers = []
-        idle_worker = None
+    def _drop_thread(self) -> bool:
+        new_workers: list[_thread.ThreadWorker] = []
+        idle_worker: _thread.ThreadWorker | None = None
         for i, w in enumerate(self._workers):
             if w.idle:
                 new_workers = self._workers[i + 1 :]
@@ -341,12 +373,12 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
             )
             return False
 
-        w.stop()
+        idle_worker.stop()
         self._workers = new_workers
-        self._dead_workers.append(w)
+        self._dead_workers.append(idle_worker)
         return True
 
-    def _maybe_spin_up(self):
+    def _maybe_spin_up(self) -> bool:
         nthreads = self.num_workers
         if nthreads < self._min_workers:
             self._add_thread()
@@ -384,7 +416,7 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
 
         return False
 
-    def maintain(self):
+    def maintain(self) -> None:
         """Keep the number of threads within the expected range.
 
         If too many idle threads are running, they are deleted.
@@ -412,8 +444,10 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
         for w in dead_workers:
             w.join()
 
-    def shutdown(self, wait=True):
-        super().shutdown(wait=wait)
+    def shutdown(
+        self, wait: bool = True, *, cancel_futures: bool = False
+    ) -> None:
+        super().shutdown(wait=wait, cancel_futures=cancel_futures)
         if wait:
             for w in self._dead_workers:
                 w.join()
@@ -429,12 +463,12 @@ class ProcessPoolExecutor(_process.ProcessPoolExecutor):
 
     threading = _thread.Threading()
 
-    def __init__(self, max_workers=None):
+    def __init__(self, max_workers: int | None = None) -> None:
         if max_workers is None:
             max_workers = _utils.get_optimal_process_count()
-        super().__init__(max_workers=max_workers)
-        if self._max_workers <= 0:
+        if max_workers <= 0:
             raise ValueError("Max workers must be greater than zero")
+        super().__init__(max_workers=max_workers)
         self._gatherer = _Gatherer(
             # Since our submit will use this gatherer we have to reference
             # the parent submit, bound to this instance (which is what we
@@ -444,16 +478,18 @@ class ProcessPoolExecutor(_process.ProcessPoolExecutor):
         )
 
     @property
-    def alive(self):
+    def alive(self) -> bool:
         """Accessor to determine if the executor is alive/active."""
         return not self._shutdown_thread
 
     @property
-    def statistics(self):
+    def statistics(self) -> ExecutorStatistics:
         """:class:`.ExecutorStatistics` about the executors executions."""
         return self._gatherer.statistics
 
-    def submit(self, fn, *args, **kwargs):
+    def submit(  # type: ignore[override]
+        self, fn: Callable[_P, _R], *args: _P.args, **kwargs: _P.kwargs
+    ) -> Future[_R]:
         """Submit some work to be executed (and gather statistics)."""
         return self._gatherer.submit(fn, *args, **kwargs)
 
@@ -471,13 +507,19 @@ class SynchronousExecutor(_futures.Executor):
 
     threading = _thread.Threading()
 
-    @removals.removed_kwarg(
+    @removals.removed_kwarg(  # type: ignore[untyped-decorator]
         'green',
         message="Eventlet support is deprecated. "
         "Please migrate your code and stop enforcing "
         "its usage.",
     )
-    def __init__(self, green=False, run_work_func=lambda work: work.run()):
+    def __init__(
+        self,
+        green: bool = False,
+        run_work_func: Callable[
+            [_utils.WorkItem], None
+        ] = lambda work: work.run(),
+    ) -> None:
         """Synchronous executor constructor.
 
         :param green: when enabled this forces the usage of greened lock
@@ -497,24 +539,28 @@ class SynchronousExecutor(_futures.Executor):
         self._run_work_func = run_work_func
         self._shutoff = False
         if green:
-            self.threading = _green.threading
-            self._future_cls = GreenFuture
+            self.threading = _green.threading  # type: ignore[assignment]
+            self._future_cls: type[Future[Any]] = GreenFuture
         else:
             self._future_cls = Future
         self._run_work_func = run_work_func
         self._gatherer = _Gatherer(
-            self._submit, self.threading.lock_object, start_before_submit=True
+            self._submit,
+            self.threading.lock_object,
+            start_before_submit=True,
         )
 
     @property
-    def alive(self):
+    def alive(self) -> bool:
         """Accessor to determine if the executor is alive/active."""
         return not self._shutoff
 
-    def shutdown(self, wait=True):
+    def shutdown(
+        self, wait: bool = True, *, cancel_futures: bool = False
+    ) -> None:
         self._shutoff = True
 
-    def restart(self):
+    def restart(self) -> None:
         """Restarts this executor (*iff* previously shutoff/shutdown).
 
         NOTE(harlowja): clears any previously gathered statistics.
@@ -524,11 +570,13 @@ class SynchronousExecutor(_futures.Executor):
             self._gatherer.clear()
 
     @property
-    def statistics(self):
+    def statistics(self) -> ExecutorStatistics:
         """:class:`.ExecutorStatistics` about the executors executions."""
         return self._gatherer.statistics
 
-    def submit(self, fn, *args, **kwargs):
+    def submit(  # type: ignore[override]
+        self, fn: Callable[_P, _R], *args: _P.args, **kwargs: _P.kwargs
+    ) -> Future[_R]:
         """Submit some work to be executed (and gather statistics)."""
         if self._shutoff:
             raise RuntimeError(
@@ -536,8 +584,10 @@ class SynchronousExecutor(_futures.Executor):
             )
         return self._gatherer.submit(fn, *args, **kwargs)
 
-    def _submit(self, fn, *args, **kwargs):
-        fut = self._future_cls()
+    def _submit(
+        self, fn: Callable[_P, _R], *args: _P.args, **kwargs: _P.kwargs
+    ) -> Future[_R]:
+        fut: Future[_R] = self._future_cls()
         self._run_work_func(_utils.WorkItem(fut, fn, *args, **kwargs))
         return fut
 
@@ -548,10 +598,10 @@ class SynchronousExecutor(_futures.Executor):
     "Please migrate your code and stop using Green "
     "future.",
 )
-class GreenFuture(Future):
+class GreenFuture(Future[Any]):
     __doc__ = Future.__doc__
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         if not _utils.EVENTLET_AVAILABLE:
             raise RuntimeError('Eventlet is needed to use a green future')
@@ -561,6 +611,7 @@ class GreenFuture(Future):
         # waiting on the future never actually causes the greenthreads to run
         # and thus you wait for infinity.
         if not _green.is_monkey_patched('thread'):
+            assert _green.threading is not None
             self._condition = _green.threading.condition_object()
 
 
@@ -582,7 +633,11 @@ class GreenThreadPoolExecutor(_futures.Executor):
 
     threading = _green.threading
 
-    def __init__(self, max_workers=1000, check_and_reject=None):
+    def __init__(
+        self,
+        max_workers: int = 1000,
+        check_and_reject: Callable[[Self, int], None] | None = None,
+    ) -> None:
         """Initializes a green thread pool executor.
 
         :param max_workers: maximum number of workers that can be
@@ -605,24 +660,27 @@ class GreenThreadPoolExecutor(_futures.Executor):
         if max_workers <= 0:
             raise ValueError("Max workers must be greater than zero")
         self._max_workers = max_workers
-        self._pool = _green.Pool(self._max_workers)
-        self._delayed_work = _green.Queue()
+        self._pool: Any = _green.Pool(self._max_workers)
+        self._delayed_work: Any = _green.Queue()
         self._check_and_reject = check_and_reject or (lambda e, waiting: None)
-        self._shutdown_lock = self.threading.lock_object()
+        assert self.threading is not None
+        self._shutdown_lock: Any = self.threading.lock_object()
         self._shutdown = False
         self._gatherer = _Gatherer(self._submit, self.threading.lock_object)
 
     @property
-    def alive(self):
+    def alive(self) -> bool:
         """Accessor to determine if the executor is alive/active."""
         return not self._shutdown
 
     @property
-    def statistics(self):
+    def statistics(self) -> ExecutorStatistics:
         """:class:`.ExecutorStatistics` about the executors executions."""
         return self._gatherer.statistics
 
-    def submit(self, fn, *args, **kwargs):
+    def submit(  # type: ignore[override]
+        self, fn: Callable[_P, _R], *args: _P.args, **kwargs: _P.kwargs
+    ) -> Future[_R]:
         """Submit some work to be executed (and gather statistics).
 
         :param args: non-keyworded arguments
@@ -635,17 +693,19 @@ class GreenThreadPoolExecutor(_futures.Executor):
                 raise RuntimeError(
                     'Can not schedule new futures after being shutdown'
                 )
-            self._check_and_reject(self, self._delayed_work.qsize())
+            self._check_and_reject(self, self._delayed_work.qsize())  # type: ignore[arg-type]
             return self._gatherer.submit(fn, *args, **kwargs)
 
-    def _submit(self, fn, *args, **kwargs):
-        f = GreenFuture()
+    def _submit(
+        self, fn: Callable[_P, _R], *args: _P.args, **kwargs: _P.kwargs
+    ) -> Future[_R]:
+        f: Future[_R] = GreenFuture()
         work = _utils.WorkItem(f, fn, *args, **kwargs)
         if not self._spin_up(work):
             self._delayed_work.put(work)
         return f
 
-    def _spin_up(self, work):
+    def _spin_up(self, work: _utils.WorkItem) -> bool:
         """Spin up a greenworker if less than max_workers.
 
         :param work: work to be given to the greenworker
@@ -658,7 +718,9 @@ class GreenThreadPoolExecutor(_futures.Executor):
             return True
         return False
 
-    def shutdown(self, wait=True):
+    def shutdown(
+        self, wait: bool = True, *, cancel_futures: bool = False
+    ) -> None:
         with self._shutdown_lock:
             if not self._shutdown:
                 self._shutdown = True
@@ -682,14 +744,20 @@ class ExecutorStatistics:
         " cancelled=%(cancelled)s)>"
     )
 
-    def __init__(self, failures=0, executed=0, runtime=0.0, cancelled=0):
+    def __init__(
+        self,
+        failures: int = 0,
+        executed: int = 0,
+        runtime: float = 0.0,
+        cancelled: int = 0,
+    ) -> None:
         self._failures = failures
         self._executed = executed
         self._runtime = runtime
         self._cancelled = cancelled
 
     @property
-    def failures(self):
+    def failures(self) -> int:
         """How many submissions ended up raising exceptions.
 
         :returns: how many submissions ended up raising exceptions
@@ -698,7 +766,7 @@ class ExecutorStatistics:
         return self._failures
 
     @property
-    def executed(self):
+    def executed(self) -> int:
         """How many submissions were executed (failed or not).
 
         :returns: how many submissions were executed
@@ -707,7 +775,7 @@ class ExecutorStatistics:
         return self._executed
 
     @property
-    def runtime(self):
+    def runtime(self) -> float:
         """Total runtime of all submissions executed (failed or not).
 
         :returns: total runtime of all submissions executed
@@ -716,7 +784,7 @@ class ExecutorStatistics:
         return self._runtime
 
     @property
-    def cancelled(self):
+    def cancelled(self) -> int:
         """How many submissions were cancelled before executing.
 
         :returns: how many submissions were cancelled before executing
@@ -725,7 +793,7 @@ class ExecutorStatistics:
         return self._cancelled
 
     @property
-    def average_runtime(self):
+    def average_runtime(self) -> float:
         """The average runtime of all submissions executed.
 
         :returns: average runtime of all submissions executed
@@ -734,7 +802,7 @@ class ExecutorStatistics:
         """
         return self._runtime / self._executed
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self._REPR_MSG_TPL % (
             {
                 'ident': id(self),

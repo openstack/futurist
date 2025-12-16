@@ -14,13 +14,21 @@
 
 """Executor rejection strategies."""
 
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
 import futurist
 
+if TYPE_CHECKING:
+    from concurrent.futures import Executor
 
-def reject_when_reached(max_backlog):
+
+def reject_when_reached(
+    max_backlog: int,
+) -> Callable[['Executor', int], None]:
     """Returns a function that will raise when backlog goes past max size."""
 
-    def _rejector(executor, backlog):
+    def _rejector(executor: 'Executor', backlog: int) -> None:
         if backlog >= max_backlog:
             raise futurist.RejectedSubmission(
                 f"Current backlog {backlog} is not"
