@@ -19,6 +19,18 @@ Async
   execution statistics. It returns instances
   of :py:class:`.futurist.Future` objects.
 
+Delayed Execution
+-----------------
+
+* A :py:class:`.futurist.DelayedExecutorMixin` that can be combined with any
+  :class:`~concurrent.futures.Executor` subclass to add a
+  ``submit_after(delay, fn, *args, **kwargs)`` method.  A single background
+  scheduler thread maintains a min-heap of pending tasks ordered by deadline;
+  tasks can be cancelled while waiting via the returned
+  :class:`~concurrent.futures.Future`.  Use
+  :py:class:`.futurist.GreenDelayedExecutorMixin` when working with eventlet-
+  based executors.
+
 Periodics
 ---------
 

@@ -14,13 +14,15 @@
 
 from __future__ import annotations
 
+import abc
 from collections.abc import Callable
 import functools
+import heapq
 import logging
 import queue
 import threading
 import time
-from typing import Any, ParamSpec, Self, TypeVar
+import typing as ty
 
 from concurrent import futures as _futures
 from concurrent.futures import process as _process
@@ -31,8 +33,8 @@ from futurist import _green
 from futurist import _thread
 from futurist import _utils
 
-_P = ParamSpec('_P')
-_R = TypeVar('_R')
+_P = ty.ParamSpec('_P')
+_R = ty.TypeVar('_R')
 
 LOG = logging.getLogger(__name__)
 
@@ -51,7 +53,7 @@ Future = _futures.Future
 class _Gatherer:
     def __init__(
         self,
-        submit_func: Callable[..., _futures.Future[Any]],
+        submit_func: Callable[..., _futures.Future[ty.Any]],
         lock_factory: Callable[[], threading.Lock],
         start_before_submit: bool = False,
     ) -> None:
@@ -69,7 +71,7 @@ class _Gatherer:
             self._stats = ExecutorStatistics()
 
     def _capture_stats(
-        self, started_at: float, fut: _futures.Future[Any]
+        self, started_at: float, fut: _futures.Future[ty.Any]
     ) -> None:
         """Capture statistics
 
@@ -139,7 +141,7 @@ class ThreadPoolExecutor(_futures.Executor):
     def __init__(
         self,
         max_workers: int | None = None,
-        check_and_reject: Callable[[Self, int], None] | None = None,
+        check_and_reject: Callable[[ty.Self, int], None] | None = None,
     ) -> None:
         """Initializes a thread pool executor.
 
@@ -297,7 +299,7 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
     def __init__(
         self,
         max_workers: int | None = None,
-        check_and_reject: Callable[[Self, int], None] | None = None,
+        check_and_reject: Callable[[ty.Self, int], None] | None = None,
         min_workers: int = 1,
         grow_threshold: float = 0.8,
         shrink_threshold: float = 0.4,
@@ -463,7 +465,7 @@ class ProcessPoolExecutor(_process.ProcessPoolExecutor):
     def __init__(
         self,
         max_workers: int | None = None,
-        mp_context: Any = None,
+        mp_context: ty.Any = None,
     ) -> None:
         if max_workers is None:
             max_workers = _utils.get_optimal_process_count()
@@ -541,7 +543,7 @@ class SynchronousExecutor(_futures.Executor):
         self._shutoff = False
         if green:
             self.threading = _green.threading  # type: ignore[assignment]
-            self._future_cls: type[Future[Any]] = GreenFuture
+            self._future_cls: type[Future[ty.Any]] = GreenFuture
         else:
             self._future_cls = Future
         self._run_work_func = run_work_func
@@ -599,7 +601,7 @@ class SynchronousExecutor(_futures.Executor):
     "Please migrate your code and stop using Green "
     "future.",
 )
-class GreenFuture(Future[Any]):
+class GreenFuture(Future[ty.Any]):
     __doc__ = Future.__doc__
 
     def __init__(self) -> None:
@@ -637,7 +639,7 @@ class GreenThreadPoolExecutor(_futures.Executor):
     def __init__(
         self,
         max_workers: int = 1000,
-        check_and_reject: Callable[[Self, int], None] | None = None,
+        check_and_reject: Callable[[ty.Self, int], None] | None = None,
     ) -> None:
         """Initializes a green thread pool executor.
 
@@ -661,11 +663,11 @@ class GreenThreadPoolExecutor(_futures.Executor):
         if max_workers <= 0:
             raise ValueError("Max workers must be greater than zero")
         self._max_workers = max_workers
-        self._pool: Any = _green.Pool(self._max_workers)
-        self._delayed_work: Any = _green.Queue()
+        self._pool: ty.Any = _green.Pool(self._max_workers)
+        self._delayed_work: ty.Any = _green.Queue()
         self._check_and_reject = check_and_reject or (lambda e, waiting: None)
         assert self.threading is not None
-        self._shutdown_lock: Any = self.threading.lock_object()
+        self._shutdown_lock: ty.Any = self.threading.lock_object()
         self._shutdown = False
         self._gatherer = _Gatherer(self._submit, self.threading.lock_object)
 
@@ -813,3 +815,402 @@ class ExecutorStatistics:
                 'cancelled': self._cancelled,
             }
         )
+
+
+class DelayedExecutorMixinBase(_futures.Executor, abc.ABC):
+    """Mixin that adds submit_after(delay, fn, ...) to any Executor subclass.
+
+    Maintains a single background scheduler thread that keeps a min-heap of
+    pending tasks ordered by deadline.  When a task's deadline arrives the
+    scheduler submits it to the underlying executor.  Only one extra thread is
+    required regardless of how many delayed tasks are pending, making this
+    suitable for use with native threads where thread creation is expensive.
+
+    Concrete subclasses must implement the factory / threading primitives:
+    ``_get_condition_object``, ``_get_future_object``, ``_start_thread``,
+    ``_join_thread``, and ``_is_scheduler_alive``.
+
+    .. note::
+
+        When combining this mixin with
+        :class:`~futurist.ProcessPoolExecutor`, you **must** use the
+        ``spawn`` multiprocessing start method (e.g.
+        ``mp_context=multiprocessing.get_context('spawn')``).  The
+        scheduler runs a background thread in the parent process; using
+        the ``fork`` or ``forkserver`` start methods can leave
+        threading primitives (conditions, locks) in a corrupted state in
+        child worker processes, leading to hangs or deadlocks.
+    """
+
+    class Task:
+        """A single delayed task entry in the scheduler priority queue.
+
+        Instances are ordered by ``deadline`` so that the min-heap in
+        :class:`DelayedExecutorMixinBase` always pops the task whose
+        deadline is closest.
+        """
+
+        def __init__(
+            self,
+            fn: ty.Callable[..., ty.Any],
+            args: tuple[ty.Any, ...],
+            kwargs: dict[str, ty.Any],
+            future: Future[ty.Any],
+            delay: float,
+        ) -> None:
+            self.fn = fn
+            self.args = args
+            self.kwargs = kwargs
+            self.future = future
+            self.deadline = time.monotonic() + delay
+
+        @property
+        def _remaining_delay(self) -> float:
+            return self.deadline - time.monotonic()
+
+        def __repr__(self) -> str:
+            return (
+                f"Task={self.fn}, "
+                f"remaining_delay={self._remaining_delay}, "
+                f"future={self.future}"
+            )
+
+        def __lt__(self, other: object) -> bool:
+            if not isinstance(other, DelayedExecutorMixinBase.Task):
+                return NotImplemented
+            return self.deadline < other.deadline
+
+    class _SentinelTask(Task):
+        """Sentinel pushed to the queue to signal the scheduler to exit.
+
+        Inherits :class:`Task` so the scheduler queue can be typed as
+        ``list[Task]`` and ordering falls out naturally from deadline
+        comparison.  Setting ``deadline`` to ``float('inf')`` guarantees
+        the sentinel always sorts after every real task, so all pending
+        work is drained before the scheduler thread notices the shutdown
+        signal.
+        """
+
+        def __init__(self) -> None:
+            self.deadline = float("inf")
+
+        def __repr__(self) -> str:
+            return "SentinelTask"
+
+    def __init__(self, *args: ty.Any, **kwargs: ty.Any) -> None:
+        super().__init__(*args, **kwargs)
+
+        self._queue_changed = self._get_condition_object()
+        # A min-heap of Task instances (including the _SentinelTask
+        # sentinel, which inherits Task and always sorts last).
+        self._queue: list[DelayedExecutorMixinBase.Task] = []
+
+        self._sentinel = self._SentinelTask()
+
+        self._shutdown_requested = False
+        self._cancel_futures_on_shutdown = False
+
+        self._scheduler = self._start_thread(self._schedule)
+
+    def _task_wrapper(self, task: Task) -> None:
+        try:
+            task.future.set_result(task.fn(*task.args, **task.kwargs))
+        except BaseException as e:
+            task.future.set_exception(e)
+
+    def _schedule(self) -> None:
+        """Run the scheduler, submitting delayed tasks as they become due."""
+        while True:
+            task_to_submit: DelayedExecutorMixinBase.Task | None = None
+            with self._queue_changed:
+                LOG.debug("Waiting for task")
+                self._queue_changed.wait_for(lambda: bool(self._queue))
+                task: DelayedExecutorMixinBase.Task = heapq.heappop(
+                    self._queue
+                )
+                LOG.debug("%s received", task)
+
+                if task is self._sentinel:
+                    # We are being shutdown. As the sentinel always sorts
+                    # after every real task we know all pending tasks have
+                    # been submitted to the inner executor.  Shut down the
+                    # inner executor now so resources are freed whether or
+                    # not the caller passes wait=True.
+                    LOG.debug("Sentinel task received, exiting scheduler")
+                    super().shutdown(
+                        wait=False,
+                        cancel_futures=self._cancel_futures_on_shutdown,
+                    )
+                    break
+
+                # task is now the one with the closest deadline
+                if task.future.cancelled():
+                    # task is cancelled, just start over
+                    LOG.debug("%s was cancelled while in the queue", task)
+                    continue
+
+                # wait for the deadline or an outside trigger
+                LOG.debug("Waiting for the deadline of %s", task)
+                changed = self._queue_changed.wait(task._remaining_delay)
+                LOG.debug(
+                    "Awaken while waiting on %s, queue changed=%s",
+                    task,
+                    changed,
+                )
+
+                if changed:
+                    # Something changed before the deadline.
+                    if task.future.cancelled():
+                        # nothing to do with this task just start over
+                        LOG.debug("%s is cancelled, skipping", task)
+                        continue
+                    else:
+                        # Reinsert the task to the queue and start over; this
+                        # allows handling a newer task with a closer deadline.
+                        heapq.heappush(self._queue, task)
+                        LOG.debug("Queue changed, re-scheduling %s", task)
+                        continue
+                else:
+                    # We hit the deadline of the task so if it is not
+                    # cancelled then we can execute it.
+                    run_it = task.future.set_running_or_notify_cancel()
+                    if not run_it:
+                        # Task is cancelled just start over
+                        LOG.debug("%s is cancelled, skipping", task)
+                        continue
+                    # Mark for submission outside the lock to avoid holding
+                    # the condition while dispatching to the inner executor.
+                    task_to_submit = task
+
+            # Submit outside the lock to avoid holding the condition
+            # longer than needed and to let concurrent submit_after
+            # calls proceed without waiting for this dispatch.
+            if task_to_submit is not None:
+                try:
+                    self.submit(self._task_wrapper, task_to_submit)
+                    LOG.debug("Task submitted %s", task_to_submit)
+                except BaseException as e:
+                    LOG.debug("Failed to submit %s: %s", task_to_submit, e)
+                    task_to_submit.future.set_exception(e)
+
+        LOG.debug("Scheduler thread finished")
+
+    def submit_after(
+        self,
+        delay: float,
+        fn: ty.Callable[..., ty.Any],
+        *args: ty.Any,
+        **kwargs: ty.Any,
+    ) -> Future[ty.Any]:
+        """Schedule *fn* to run after *delay* seconds.
+
+        :param delay: Number of seconds to wait before executing *fn*.
+            Must be a non-negative value.
+        :param fn: Callable to execute after the delay.
+        :param args: Positional arguments forwarded to *fn*.
+        :param kwargs: Keyword arguments forwarded to *fn*.
+        :returns: A :class:`~concurrent.futures.Future` that will be
+            resolved with the return value of *fn*, or with an exception
+            if *fn* raises.  The future can be cancelled while the task
+            is still waiting for its deadline.
+        :raises RuntimeError: If the executor has already been shut down.
+        :raises ValueError: If *delay* is negative.
+        """
+        if delay < 0:
+            raise ValueError(
+                f"delay must be a non-negative number, got {delay!r}"
+            )
+        with self._queue_changed:
+            if self._shutdown_requested:
+                raise RuntimeError(
+                    "Cannot schedule new tasks after being shutdown"
+                )
+
+            task = self.Task(
+                fn, args, kwargs, self._get_future_object(), delay
+            )
+            heapq.heappush(self._queue, task)
+            self._queue_changed.notify_all()
+            LOG.debug("%s is queued", task)
+            return task.future
+
+    def shutdown(
+        self, wait: bool = True, *, cancel_futures: bool = False
+    ) -> None:
+        """Shutdown the executor.
+
+        :param wait: If ``True`` (the default) block until the scheduler
+            thread and all submitted work have completed.
+        :param cancel_futures: If ``True``, cancel any delayed tasks that
+            are still waiting for their deadline before shutting down.
+        """
+        LOG.debug("Shutdown requested")
+        with self._queue_changed:
+            self._cancel_futures_on_shutdown = cancel_futures
+            if cancel_futures:
+                for item in self._queue:
+                    if item is not self._sentinel:
+                        item.future.cancel()
+            if not self._shutdown_requested:
+                # Ensure that our thread wakes at least one more time to allow
+                # it to exit by queuing up a sentinel task after the shutdown
+                # condition is set. This task won't be executed.
+                heapq.heappush(self._queue, self._sentinel)
+                # We only want to queue 1 sentinel even if multiple shutdown
+                # calls happen.
+                self._shutdown_requested = True
+                self._queue_changed.notify_all()
+                LOG.debug("Shutdown signalled to the scheduler thread")
+
+        # If wait is set we need to wait for our sentinel to be processed and
+        # therefore our thread to exit.  The scheduler thread shuts down the
+        # inner executor when it processes the sentinel; calling
+        # super().shutdown(wait=True) here then waits for any still-running
+        # inner-executor workers to finish.
+        if wait:
+            LOG.debug("Waiting for the scheduler thread to finish")
+            self._join_thread(self._scheduler)
+            LOG.debug("Waiting for the internal executor to finish")
+            super().shutdown(wait=wait, cancel_futures=cancel_futures)
+        # With wait=False we return immediately.  The scheduler thread is
+        # still running, will submit any remaining delayed tasks to the
+        # inner executor, and will then shut down the inner executor itself.
+
+    @property
+    def alive(self) -> bool:
+        """``True`` while the scheduler or inner executor is still active.
+        Returns ``False`` only once both have fully stopped.  The
+        ``or super().alive`` term is defensive: in normal operation the
+        scheduler calls ``super().shutdown()`` before exiting so
+        ``super().alive`` is already ``False`` when the scheduler dies, but
+        if the scheduler exits abnormally without that call, the inner
+        executor may still be running and this ensures we report it.
+
+        Note: ``alive`` is not defined on the stdlib
+        :class:`~concurrent.futures.Executor` base class, but every futurist
+        executor exposes it.  This mixin is designed to be combined with a
+        futurist executor, so ``super().alive`` will always resolve correctly
+        at runtime even though the static type checker cannot verify it.
+        """
+        return self._is_scheduler_alive() or super().alive  # type: ignore[misc]
+
+    @abc.abstractmethod
+    def _get_condition_object(self) -> threading.Condition:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def _get_future_object(self) -> Future[ty.Any]:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def _start_thread(self, fn: ty.Callable[[], None]) -> ty.Any:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def _join_thread(self, t: ty.Any) -> None:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def _is_scheduler_alive(self) -> bool:
+        raise NotImplementedError
+
+
+class GreenDelayedExecutorMixin(DelayedExecutorMixinBase):
+    """Variant of :class:`DelayedExecutorMixinBase` that uses eventlet
+    primitives.
+
+    This allows the mixin to work correctly in environments where eventlet is
+    present but the standard library has *not* been monkey-patched: all
+    threading primitives (conditions, threads, futures) are substituted with
+    their eventlet equivalents so that the scheduler integrates properly with
+    the eventlet event loop.
+
+    Example usage::
+
+        class DelayedGreenExecutor(
+            GreenDelayedExecutorMixin, GreenThreadPoolExecutor
+        ):
+            pass
+
+
+        executor = DelayedGreenExecutor(max_workers=4)
+        fut = executor.submit_after(0.5, my_func, arg1, kwarg=val)
+        result = fut.result()
+        executor.shutdown()
+    """
+
+    @staticmethod
+    def _get_condition_object() -> threading.Condition:
+        if _green.threading is None:
+            raise RuntimeError(
+                "GreenDelayedExecutorMixin requires eventlet to be installed"
+            )
+        return _green.threading.condition_object()
+
+    @staticmethod
+    def _get_future_object() -> GreenFuture:
+        return GreenFuture()
+
+    @staticmethod
+    def _start_thread(fn: ty.Callable[[], None]) -> ty.Any:
+        if _green.spawn is None:
+            raise RuntimeError(
+                "GreenDelayedExecutorMixin requires eventlet to be installed"
+            )
+        return _green.spawn(fn)
+
+    @staticmethod
+    def _join_thread(t: ty.Any) -> None:
+        t.wait()
+
+    def _is_scheduler_alive(self) -> bool:
+        # GreenThread exposes a ``dead`` attribute rather than ``is_alive()``.
+        return not self._scheduler.dead
+
+
+class DelayedExecutorMixin(DelayedExecutorMixinBase):
+    """Variant of :class:`DelayedExecutorMixinBase` that uses native threads.
+
+    Use this class together with any standard-library
+    :class:`~concurrent.futures.Executor` subclass (e.g.
+    :class:`~futurist.ThreadPoolExecutor`) to add
+    :meth:`~DelayedExecutorMixinBase.submit_after` support backed by a single
+    daemon scheduler thread.
+
+    Example usage::
+
+        class DelayedThreadExecutor(DelayedExecutorMixin, ThreadPoolExecutor):
+            pass
+
+
+        executor = DelayedThreadExecutor(max_workers=4)
+        fut = executor.submit_after(0.5, my_func, arg1, kwarg=val)
+        result = fut.result()
+        executor.shutdown()
+    """
+
+    @staticmethod
+    def _get_condition_object() -> threading.Condition:
+        return threading.Condition()
+
+    @staticmethod
+    def _get_future_object() -> Future[ty.Any]:
+        return Future()
+
+    @staticmethod
+    def _start_thread(fn: ty.Callable[[], None]) -> threading.Thread:
+        t = threading.Thread(
+            target=fn,
+            name="futurist-delayed-scheduler",
+            daemon=True,
+        )
+        t.start()
+        return t
+
+    @staticmethod
+    def _join_thread(t: threading.Thread) -> None:
+        t.join()
+
+    def _is_scheduler_alive(self) -> bool:
+        t: threading.Thread = self._scheduler
+        return t.is_alive()

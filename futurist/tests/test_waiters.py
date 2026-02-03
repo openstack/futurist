@@ -10,6 +10,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import multiprocessing
 import time
 
 import eventlet
@@ -71,7 +72,14 @@ class TestWaiters(testscenarios.TestWithScenarios, base.TestCase):
             'process',
             {
                 'executor_cls': futurist.ProcessPoolExecutor,
-                'executor_kwargs': {},
+                'executor_kwargs': {
+                    # Use 'spawn' rather than the platform default 'fork'.
+                    # This test module imports eventlet at module level, which
+                    # creates background threads; forking a multithreaded
+                    # process can deadlock the child due to inherited locks.
+                    # 'spawn' starts a clean interpreter and avoids this.
+                    'mp_context': multiprocessing.get_context('spawn'),
+                },
                 'use_eventlet_sleep': False,
             },
         ),

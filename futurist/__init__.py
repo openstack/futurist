@@ -20,7 +20,10 @@ from futurist._futures import GreenFuture
 from futurist._futures import CancelledError
 from futurist._futures import TimeoutError
 
+from futurist._futures import DelayedExecutorMixin
+from futurist._futures import DelayedExecutorMixinBase
 from futurist._futures import DynamicThreadPoolExecutor
+from futurist._futures import GreenDelayedExecutorMixin
 from futurist._futures import GreenThreadPoolExecutor
 from futurist._futures import ProcessPoolExecutor
 from futurist._futures import SynchronousExecutor
@@ -41,6 +44,9 @@ __all__ = [
     'SynchronousExecutor',
     'ThreadPoolExecutor',
     'DynamicThreadPoolExecutor',
+    'DelayedExecutorMixin',
+    'GreenDelayedExecutorMixin',
     'RejectedSubmission',
     'ExecutorStatistics',
+    'DelayedExecutorMixinBase',
 ]

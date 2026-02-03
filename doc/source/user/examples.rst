@@ -96,6 +96,49 @@ Creating and using a thread-based executor
 
     hello
 
+------------------------------------------------------
+Creating and using a delayed (time-deferred) executor
+------------------------------------------------------
+
+``DelayedExecutorMixin`` adds ``submit_after(delay, fn, …)`` to any futurist
+executor.  The scheduler keeps a single background thread and a min-heap of
+deadlines, so arbitrarily many delayed tasks share just one extra thread.
+
+::
+
+    import time
+
+    import futurist
+
+
+    class DelayedThreadExecutor(
+        futurist.DelayedExecutorMixin,
+        futurist.ThreadPoolExecutor,
+    ):
+        pass
+
+
+    def greet(name):
+        return f"Hello, {name}!"
+
+
+    e = DelayedThreadExecutor(max_workers=4)
+
+    # Schedule greet() to run 0.5 seconds from now.
+    fut = e.submit_after(0.5, greet, "world")
+
+    # The future can be cancelled at any point before the deadline.
+    # fut.cancel()
+
+    print(fut.result())   # blocks until the task completes
+    e.shutdown()
+
+**Expected output:**
+
+::
+
+    Hello, world!
+
 -------------------------------------------
 Creating and using a process-based executor
 -------------------------------------------
