@@ -216,7 +216,7 @@ class ThreadPoolExecutor(_futures.Executor):
     def _submit(self, fn, *args, **kwargs):
         f = Future()
         self._maybe_spin_up()
-        self._work_queue.put(_utils.WorkItem(f, fn, args, kwargs))
+        self._work_queue.put(_utils.WorkItem(f, fn, *args, **kwargs))
         return f
 
     def submit(self, fn, *args, **kwargs):
@@ -538,7 +538,7 @@ class SynchronousExecutor(_futures.Executor):
 
     def _submit(self, fn, *args, **kwargs):
         fut = self._future_cls()
-        self._run_work_func(_utils.WorkItem(fut, fn, args, kwargs))
+        self._run_work_func(_utils.WorkItem(fut, fn, *args, **kwargs))
         return fut
 
 
@@ -640,7 +640,7 @@ class GreenThreadPoolExecutor(_futures.Executor):
 
     def _submit(self, fn, *args, **kwargs):
         f = GreenFuture()
-        work = _utils.WorkItem(f, fn, args, kwargs)
+        work = _utils.WorkItem(f, fn, *args, **kwargs)
         if not self._spin_up(work):
             self._delayed_work.put(work)
         return f

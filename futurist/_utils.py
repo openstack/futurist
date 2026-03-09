@@ -33,7 +33,7 @@ except ImportError:
 class WorkItem:
     """A thing to be executed by a executor."""
 
-    def __init__(self, future, fn, args, kwargs):
+    def __init__(self, future, fn, *args, **kwargs):
         self.future = future
         self.fn = fn
         self.args = args
