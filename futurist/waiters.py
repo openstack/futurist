@@ -11,10 +11,12 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+from __future__ import annotations
 
-import collections
 import contextlib
 import functools
+from collections.abc import Callable, Generator, Iterable
+from typing import Any, NamedTuple, TypeVar
 
 from concurrent import futures
 from concurrent.futures import _base
@@ -28,10 +30,15 @@ except ImportError:
     greenthreading = None
 
 
-#: Named tuple returned from ``wait_for*`` calls.
-DoneAndNotDoneFutures = collections.namedtuple(
-    'DoneAndNotDoneFutures', 'done not_done'
-)
+_F = TypeVar('_F', bound=futures.Future[Any])
+
+
+class DoneAndNotDoneFutures(NamedTuple):
+    """Named tuple returned from ``wait_for*`` calls."""
+
+    done: set[futures.Future[Any]]
+    not_done: set[futures.Future[Any]]
+
 
 _DONE_STATES = frozenset(
     [
@@ -42,40 +49,54 @@ _DONE_STATES = frozenset(
 
 
 @contextlib.contextmanager
-def _acquire_and_release_futures(fs):
+def _acquire_and_release_futures(
+    fs: Iterable[futures.Future[Any]],
+) -> Generator[None, None, None]:
     # Do this to ensure that we always get the futures in the same order (aka
     # always acquire the conditions in the same order, no matter what; a way
     # to avoid dead-lock).
-    fs = sorted(fs, key=id)
+    sorted_fs = sorted(fs, key=id)
     with contextlib.ExitStack() as stack:
-        for fut in fs:
+        for fut in sorted_fs:
             stack.enter_context(fut._condition)
         yield
 
 
-def _ensure_eventlet(func):
+_WaitFunc = Callable[
+    [Iterable[futures.Future[Any]], float | None], DoneAndNotDoneFutures
+]
+
+
+def _ensure_eventlet(func: _WaitFunc) -> _WaitFunc:
     """Decorator that verifies we have the needed eventlet components."""
 
     @functools.wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(
+        fs: Iterable[futures.Future[Any]], timeout: float | None = None
+    ) -> DoneAndNotDoneFutures:
         if not _utils.EVENTLET_AVAILABLE or greenthreading is None:
             raise RuntimeError('Eventlet is needed to wait on green futures')
-        return func(*args, **kwargs)
+        return func(fs, timeout)
 
     return wrapper
 
 
 def _wait_for(
-    fs, no_green_return_when, on_all_green_cb, caller_name, timeout=None
-):
-    green_fs = sum(1 for f in fs if isinstance(f, futurist.GreenFuture))
+    fs: Iterable[futures.Future[Any]],
+    no_green_return_when: str,
+    on_all_green_cb: _WaitFunc,
+    caller_name: str,
+    timeout: float | None = None,
+) -> DoneAndNotDoneFutures:
+    fs_list = list(fs)
+    green_fs = sum(1 for f in fs_list if isinstance(f, futurist.GreenFuture))
     if not green_fs:
         done, not_done = futures.wait(
-            fs, timeout=timeout, return_when=no_green_return_when
+            fs_list, timeout=timeout, return_when=no_green_return_when
         )
         return DoneAndNotDoneFutures(done, not_done)
     else:
-        non_green_fs = len(fs) - green_fs
+        non_green_fs = len(fs_list) - green_fs
         if non_green_fs:
             raise RuntimeError(
                 f"Can not wait on {green_fs} green futures and {non_green_fs}"
@@ -83,10 +104,12 @@ def _wait_for(
                 f" `{caller_name}` call"
             )
         else:
-            return on_all_green_cb(fs, timeout=timeout)
+            return on_all_green_cb(fs_list, timeout)
 
 
-def wait_for_all(fs, timeout=None):
+def wait_for_all(
+    fs: Iterable[futures.Future[Any]], timeout: float | None = None
+) -> DoneAndNotDoneFutures:
     """Wait for all of the futures to complete.
 
     Works correctly with both green and non-green futures (but not both
@@ -105,7 +128,9 @@ def wait_for_all(fs, timeout=None):
     )
 
 
-def wait_for_any(fs, timeout=None):
+def wait_for_any(
+    fs: Iterable[futures.Future[Any]], timeout: float | None = None
+) -> DoneAndNotDoneFutures:
     """Wait for one (**any**) of the futures to complete.
 
     Works correctly with both green and non-green futures (but not both
@@ -127,46 +152,48 @@ def wait_for_any(fs, timeout=None):
 class _AllGreenWaiter:
     """Provides the event that ``_wait_for_all_green`` blocks on."""
 
-    def __init__(self, pending):
-        self.event = greenthreading.Event()
-        self.lock = greenthreading.Lock()
+    def __init__(self, pending: int) -> None:
+        self.event: Any = greenthreading.Event()
+        self.lock: Any = greenthreading.Lock()
         self.pending = pending
 
-    def _decrement_pending(self):
+    def _decrement_pending(self) -> None:
         with self.lock:
             self.pending -= 1
             if self.pending <= 0:
                 self.event.set()
 
-    def add_result(self, future):
+    def add_result(self, future: futures.Future[Any]) -> None:
         self._decrement_pending()
 
-    def add_exception(self, future):
+    def add_exception(self, future: futures.Future[Any]) -> None:
         self._decrement_pending()
 
-    def add_cancelled(self, future):
+    def add_cancelled(self, future: futures.Future[Any]) -> None:
         self._decrement_pending()
 
 
 class _AnyGreenWaiter:
     """Provides the event that ``_wait_for_any_green`` blocks on."""
 
-    def __init__(self):
-        self.event = greenthreading.Event()
+    def __init__(self) -> None:
+        self.event: Any = greenthreading.Event()
 
-    def add_result(self, future):
+    def add_result(self, future: futures.Future[Any]) -> None:
         self.event.set()
 
-    def add_exception(self, future):
+    def add_exception(self, future: futures.Future[Any]) -> None:
         self.event.set()
 
-    def add_cancelled(self, future):
+    def add_cancelled(self, future: futures.Future[Any]) -> None:
         self.event.set()
 
 
-def _partition_futures(fs):
-    done = set()
-    not_done = set()
+def _partition_futures(
+    fs: Iterable[futures.Future[Any]],
+) -> tuple[set[futures.Future[Any]], set[futures.Future[Any]]]:
+    done: set[futures.Future[Any]] = set()
+    not_done: set[futures.Future[Any]] = set()
     for f in fs:
         if f._state in _DONE_STATES:
             done.add(f)
@@ -175,21 +202,32 @@ def _partition_futures(fs):
     return done, not_done
 
 
-def _create_and_install_waiters(fs, waiter_cls, *args, **kwargs):
+_W = TypeVar('_W', _AllGreenWaiter, _AnyGreenWaiter)
+
+
+def _create_and_install_waiters(
+    fs: Iterable[futures.Future[Any]],
+    waiter_cls: type[_W],
+    *args: Any,
+    **kwargs: Any,
+) -> _W:
     waiter = waiter_cls(*args, **kwargs)
     for f in fs:
-        f._waiters.append(waiter)
+        f._waiters.append(waiter)  # type: ignore[arg-type]
     return waiter
 
 
 @_ensure_eventlet
-def _wait_for_all_green(fs, timeout=None):
-    if not fs:
+def _wait_for_all_green(
+    fs: Iterable[futures.Future[Any]], timeout: float | None = None
+) -> DoneAndNotDoneFutures:
+    fs_list = list(fs)
+    if not fs_list:
         return DoneAndNotDoneFutures(set(), set())
 
-    with _acquire_and_release_futures(fs):
-        done, not_done = _partition_futures(fs)
-        if len(done) == len(fs):
+    with _acquire_and_release_futures(fs_list):
+        done, not_done = _partition_futures(fs_list)
+        if len(done) == len(fs_list):
             return DoneAndNotDoneFutures(done, not_done)
         waiter = _create_and_install_waiters(
             not_done, _AllGreenWaiter, len(not_done)
@@ -197,29 +235,32 @@ def _wait_for_all_green(fs, timeout=None):
     waiter.event.wait(timeout)
     for f in not_done:
         with f._condition:
-            f._waiters.remove(waiter)
+            f._waiters.remove(waiter)  # type: ignore[arg-type]
 
-    with _acquire_and_release_futures(fs):
-        done, not_done = _partition_futures(fs)
+    with _acquire_and_release_futures(fs_list):
+        done, not_done = _partition_futures(fs_list)
         return DoneAndNotDoneFutures(done, not_done)
 
 
 @_ensure_eventlet
-def _wait_for_any_green(fs, timeout=None):
-    if not fs:
+def _wait_for_any_green(
+    fs: Iterable[futures.Future[Any]], timeout: float | None = None
+) -> DoneAndNotDoneFutures:
+    fs_list = list(fs)
+    if not fs_list:
         return DoneAndNotDoneFutures(set(), set())
 
-    with _acquire_and_release_futures(fs):
-        done, not_done = _partition_futures(fs)
+    with _acquire_and_release_futures(fs_list):
+        done, not_done = _partition_futures(fs_list)
         if done:
             return DoneAndNotDoneFutures(done, not_done)
-        waiter = _create_and_install_waiters(fs, _AnyGreenWaiter)
+        waiter = _create_and_install_waiters(fs_list, _AnyGreenWaiter)
 
     waiter.event.wait(timeout)
-    for f in fs:
+    for f in fs_list:
         with f._condition:
-            f._waiters.remove(waiter)
+            f._waiters.remove(waiter)  # type: ignore[arg-type]
 
-    with _acquire_and_release_futures(fs):
-        done, not_done = _partition_futures(fs)
+    with _acquire_and_release_futures(fs_list):
+        done, not_done = _partition_futures(fs_list)
         return DoneAndNotDoneFutures(done, not_done)

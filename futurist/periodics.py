@@ -11,6 +11,7 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+from __future__ import annotations
 
 import collections
 import fractions
@@ -21,18 +22,26 @@ import logging
 import math
 import random
 import threading
+from collections.abc import Callable, Generator, Iterable
+from typing import Any, ParamSpec, NamedTuple, TypeVar, TYPE_CHECKING
 
 from concurrent import futures
 
 try:
     import prettytable
 except ImportError:
-    prettytable = None
+    prettytable = None  # type: ignore[assignment]
 
 import futurist
 from futurist import _utils as utils
 
+if TYPE_CHECKING:
+    from logging import Logger
+
 LOG = logging.getLogger(__name__)
+
+_P = ParamSpec('_P')
+_R = TypeVar('_R')
 
 
 class NeverAgain(Exception):
@@ -69,94 +78,101 @@ PERIODIC = 'periodic'
 IMMEDIATE = 'immediate'
 
 
-class Work(
-    collections.namedtuple("Work", ['name', 'callback', 'args', 'kwargs'])
-):
+class Work(NamedTuple):
     """Named unit of work that can be periodically scheduled and watched."""
 
-    def __call__(self):
+    name: str
+    callback: Callable[..., Any]
+    args: tuple[Any, ...]
+    kwargs: dict[str, Any]
+
+    def __call__(self) -> Any:
         return self.callback(*self.args, **self.kwargs)
+
+
+_Metrics = dict[str, int | float | bool]
 
 
 class Watcher:
     """A **read-only** object representing a periodic callback's activities."""
 
-    def __init__(self, metrics, work):
+    def __init__(self, metrics: _Metrics, work: Work) -> None:
         self._metrics = metrics
         self._work = work
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
-            "<Watcher(metrics={metrics}, work={work}) object at 0x{ident:x}>"
-        ).format(
-            **dict(ident=id(self), work=self._work, metrics=self._metrics)
+            f"<Watcher(metrics={self._metrics}, work={self._work}) "
+            f"object at 0x{id(self):x}>"
         )
 
     @property
-    def requested_stop(self):
+    def requested_stop(self) -> bool:
         """If the work unit being ran has requested to be stopped."""
-        return self._metrics['requested_stop']
+        return bool(self._metrics['requested_stop'])
 
     @property
-    def work(self):
+    def work(self) -> Work:
         """**Read-only** named work tuple this object watches."""
         return self._work
 
     @property
-    def runs(self):
+    def runs(self) -> int:
         """How many times the periodic callback has been ran."""
-        return self._metrics['runs']
+        return int(self._metrics['runs'])
 
     @property
-    def successes(self):
+    def successes(self) -> int:
         """How many times the periodic callback ran successfully."""
-        return self._metrics['successes']
+        return int(self._metrics['successes'])
 
     @property
-    def failures(self):
+    def failures(self) -> int:
         """How many times the periodic callback ran unsuccessfully."""
-        return self._metrics['failures']
+        return int(self._metrics['failures'])
 
     @property
-    def elapsed(self):
+    def elapsed(self) -> float:
         """Total amount of time the periodic callback has ran for."""
-        return self._metrics['elapsed']
+        return float(self._metrics['elapsed'])
 
     @property
-    def elapsed_waiting(self):
+    def elapsed_waiting(self) -> float:
         """Total amount of time the periodic callback has waited to run for."""
-        return self._metrics['elapsed_waiting']
+        return float(self._metrics['elapsed_waiting'])
 
     @property
-    def average_elapsed_waiting(self):
+    def average_elapsed_waiting(self) -> float:
         """Avg. amount of time the periodic callback has waited to run for.
 
         This may raise a ``ZeroDivisionError`` if there has been no runs.
         """
-        return self._metrics['elapsed_waiting'] / self._metrics['runs']
+        return float(self._metrics['elapsed_waiting']) / int(
+            self._metrics['runs']
+        )
 
     @property
-    def average_elapsed(self):
+    def average_elapsed(self) -> float:
         """Avg. amount of time the periodic callback has ran for.
 
         This may raise a ``ZeroDivisionError`` if there has been no runs.
         """
-        return self._metrics['elapsed'] / self._metrics['runs']
+        return float(self._metrics['elapsed']) / int(self._metrics['runs'])
 
 
-def _check_attrs(obj):
+def _check_attrs(obj: Any) -> list[str]:
     """Checks that a periodic function/method has all the expected attributes.
 
     This will return the expected attributes that were **not** found.
     """
-    missing_attrs = []
+    missing_attrs: list[str] = []
     for attr_name in _REQUIRED_ATTRS:
         if not hasattr(obj, attr_name):
             missing_attrs.append(attr_name)
     return missing_attrs
 
 
-def is_periodic(obj):
+def is_periodic(obj: Any) -> bool:
     """Check whether an object is a valid periodic callable.
 
     :param obj: object to inspect
@@ -166,7 +182,9 @@ def is_periodic(obj):
     return callable(obj) and not _check_attrs(obj)
 
 
-def periodic(spacing, run_immediately=False, enabled=True):
+def periodic(
+    spacing: float | int, run_immediately: bool = False, enabled: bool = True
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Tags a method/function as wanting/able to execute periodically.
 
     :param spacing: how often to run the decorated function (required)
@@ -185,13 +203,13 @@ def periodic(spacing, run_immediately=False, enabled=True):
             f" zero instead of {spacing}"
         )
 
-    def wrapper(f):
-        f._is_periodic = enabled
-        f._periodic_spacing = spacing
-        f._periodic_run_immediately = run_immediately
+    def wrapper(f: Callable[_P, _R]) -> Callable[_P, _R]:
+        f._is_periodic = enabled  # type: ignore[attr-defined]
+        f._periodic_spacing = spacing  # type: ignore[attr-defined]
+        f._periodic_run_immediately = run_immediately  # type: ignore[attr-defined]
 
         @functools.wraps(f)
-        def decorator(*args, **kwargs):
+        def decorator(*args: _P.args, **kwargs: _P.kwargs) -> _R:
             return f(*args, **kwargs)
 
         return decorator
@@ -199,7 +217,15 @@ def periodic(spacing, run_immediately=False, enabled=True):
     return wrapper
 
 
-def _add_jitter(max_percent_jitter):
+_ScheduleStrategy = Callable[
+    [Callable[..., Any], float, float, _Metrics], float
+]
+_InitialScheduleStrategy = Callable[[Callable[..., Any], float], float]
+
+
+def _add_jitter(
+    max_percent_jitter: float | fractions.Fraction,
+) -> Callable[[_ScheduleStrategy], _ScheduleStrategy]:
     """Wraps a existing strategy and adds jitter to it.
 
     0% to 100% of the spacing value will be added to this value to ensure
@@ -211,14 +237,19 @@ def _add_jitter(max_percent_jitter):
             " equal to 0.0 and less than or equal to 1.0"
         )
 
-    def wrapper(func):
+    def wrapper(func: _ScheduleStrategy) -> _ScheduleStrategy:
         rnd = random.SystemRandom()
 
         @functools.wraps(func)
-        def decorator(cb, started_at, finished_at, metrics):
+        def decorator(
+            cb: Callable[..., Any],
+            started_at: float,
+            finished_at: float,
+            metrics: _Metrics,
+        ) -> float:
             next_run = func(cb, started_at, finished_at, metrics)
-            how_often = cb._periodic_spacing
-            jitter = how_often * (rnd.random() * max_percent_jitter)
+            how_often: float = cb._periodic_spacing  # type: ignore[attr-defined]
+            jitter = how_often * (rnd.random() * float(max_percent_jitter))
             return next_run + jitter
 
         decorator.__name__ += "_with_jitter"
@@ -227,33 +258,48 @@ def _add_jitter(max_percent_jitter):
     return wrapper
 
 
-def _last_finished_strategy(cb, started_at, finished_at, metrics):
+def _last_finished_strategy(
+    cb: Callable[..., Any],
+    started_at: float,
+    finished_at: float,
+    metrics: _Metrics,
+) -> float:
     # Determine when the callback should next run based on when it was
     # last finished **only** given metrics about this information.
-    how_often = cb._periodic_spacing
+    how_often: float = cb._periodic_spacing  # type: ignore[attr-defined]
     return finished_at + how_often
 
 
-def _last_started_strategy(cb, started_at, finished_at, metrics):
+def _last_started_strategy(
+    cb: Callable[..., Any],
+    started_at: float,
+    finished_at: float,
+    metrics: _Metrics,
+) -> float:
     # Determine when the callback should next run based on when it was
     # last started **only** given metrics about this information.
-    how_often = cb._periodic_spacing
+    how_often: float = cb._periodic_spacing  # type: ignore[attr-defined]
     return started_at + how_often
 
 
-def _aligned_last_finished_strategy(cb, started_at, finished_at, metrics):
+def _aligned_last_finished_strategy(
+    cb: Callable[..., Any],
+    started_at: float,
+    finished_at: float,
+    metrics: _Metrics,
+) -> float:
     # Determine when the callback should next run based on when it was
     # last finished **only** where the last finished time is first aligned to
     # be a multiple of the expected spacing (so that no matter how long or
     # how short the callback takes it is always ran on its next aligned
     # to spacing time).
-    how_often = cb._periodic_spacing
+    how_often: float = cb._periodic_spacing  # type: ignore[attr-defined]
     aligned_finished_at = finished_at - math.fmod(finished_at, how_often)
     return aligned_finished_at + how_often
 
 
-def _now_plus_periodicity(cb, now):
-    how_often = cb._periodic_spacing
+def _now_plus_periodicity(cb: Callable[..., Any], now: float) -> float:
+    how_often: float = cb._periodic_spacing  # type: ignore[attr-defined]
     return how_often + now
 
 
@@ -268,26 +314,33 @@ class _Schedule:
     know what the index of the callback we should call is).
     """
 
-    def __init__(self):
-        self._ordering = []
+    def __init__(self) -> None:
+        self._ordering: list[tuple[float, int]] = []
 
-    def push(self, next_run, index):
+    def push(self, next_run: float, index: int) -> None:
         heapq.heappush(self._ordering, (next_run, index))
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._ordering)
 
-    def fetch_next_run(self, index):
+    def fetch_next_run(self, index: int) -> float | None:
         for next_run, a_index in self._ordering:
             if a_index == index:
                 return next_run
         return None
 
-    def pop(self):
+    def pop(self) -> tuple[float, int]:
         return heapq.heappop(self._ordering)
 
 
-def _on_failure_log(log, cb, kind, spacing, exc_info, traceback=None):
+def _on_failure_log(
+    log: Logger,
+    cb: Callable[..., Any],
+    kind: str,
+    spacing: float,
+    exc_info: utils.ExcInfoT,
+    traceback: str | None = None,
+) -> None:
     cb_name = utils.get_callback_name(cb)
     if all(exc_info) or not traceback:
         log.error(
@@ -295,7 +348,7 @@ def _on_failure_log(log, cb, kind, spacing, exc_info, traceback=None):
             kind,
             cb_name,
             spacing,
-            exc_info=exc_info,
+            exc_info=exc_info,  # type: ignore[arg-type]
         )
     else:
         log.error(
@@ -308,11 +361,15 @@ def _on_failure_log(log, cb, kind, spacing, exc_info, traceback=None):
 
 
 class _Runner:
-    def __init__(self, now_func, retain_traceback=True):
+    def __init__(
+        self,
+        now_func: Callable[[], float],
+        retain_traceback: bool = True,
+    ) -> None:
         self.now_func = now_func
         self.retain_traceback = retain_traceback
 
-    def run(self, work):
+    def run(self, work: Work) -> tuple[float, float, utils.Failure | None]:
         failure = None
         started_at = self.now_func()
         try:
@@ -326,13 +383,17 @@ class _Runner:
         return (started_at, finished_at, failure)
 
 
-def _build(now_func, works, next_run_scheduler):
+def _build(
+    now_func: Callable[[], float],
+    works: list[Work],
+    next_run_scheduler: _InitialScheduleStrategy,
+) -> tuple[collections.deque[int], _Schedule]:
     schedule = _Schedule()
-    now = None
-    immediates = collections.deque()
+    now: float | None = None
+    immediates: collections.deque[int] = collections.deque()
     for index, work in enumerate(works):
         cb = work.callback
-        if cb._periodic_run_immediately:
+        if cb._periodic_run_immediately:  # type: ignore[attr-defined]
             immediates.append(index)
         else:
             if now is None:
@@ -348,10 +409,10 @@ _SCHEDULE_RETRY_EXCEPTIONS = (RuntimeError, futurist.RejectedSubmission)
 class ExecutorFactory:
     """Base class for any executor factory."""
 
-    shutdown = True
+    shutdown: bool = True
     """Whether the executor should be shut down on periodic worker stop."""
 
-    def __call__(self):
+    def __call__(self) -> futures.Executor:
         """Return the executor to be used."""
         raise NotImplementedError()
 
@@ -359,12 +420,17 @@ class ExecutorFactory:
 class ExistingExecutor(ExecutorFactory):
     """An executor factory returning the existing object."""
 
-    def __init__(self, executor, shutdown=False):
+    def __init__(
+        self, executor: futures.Executor, shutdown: bool = False
+    ) -> None:
         self._executor = executor
         self.shutdown = shutdown
 
-    def __call__(self):
+    def __call__(self) -> futures.Executor:
         return self._executor
+
+
+_OnFailureCallback = Callable[..., None]
 
 
 class PeriodicWorker:
@@ -377,11 +443,11 @@ class PeriodicWorker:
     """
 
     #: Max amount of time to wait when running (forces a wakeup when elapsed).
-    MAX_LOOP_IDLE = 30
+    MAX_LOOP_IDLE: float = 30
 
-    _NO_OP_ARGS = ()
-    _NO_OP_KWARGS = {}
-    _INITIAL_METRICS = {
+    _NO_OP_ARGS: tuple[Any, ...] = ()
+    _NO_OP_KWARGS: dict[str, Any] = {}
+    _INITIAL_METRICS: _Metrics = {
         'runs': 0,
         'elapsed': 0,
         'elapsed_waiting': 0,
@@ -391,16 +457,18 @@ class PeriodicWorker:
     }
 
     # When scheduling fails temporary, use a random delay between 0.9-1.1 sec.
-    _RESCHEDULE_DELAY = 0.9
-    _RESCHEDULE_JITTER = 0.2
+    _RESCHEDULE_DELAY: float = 0.9
+    _RESCHEDULE_JITTER: float = 0.2
 
-    DEFAULT_JITTER = fractions.Fraction(5, 100)
+    DEFAULT_JITTER: fractions.Fraction = fractions.Fraction(5, 100)
     """
     Default jitter percentage the built-in strategies (that have jitter
     support) will use.
     """
 
-    BUILT_IN_STRATEGIES = {
+    BUILT_IN_STRATEGIES: dict[
+        str, tuple[_ScheduleStrategy, _InitialScheduleStrategy]
+    ] = {
         'last_started': (
             _last_started_strategy,
             _now_plus_periodicity,
@@ -441,18 +509,20 @@ class PeriodicWorker:
     @classmethod
     def create(
         cls,
-        objects,
-        exclude_hidden=True,
-        log=None,
-        executor_factory=None,
-        cond_cls=threading.Condition,
-        event_cls=threading.Event,
-        schedule_strategy='last_started',
-        now_func=utils.now,
-        on_failure=None,
-        args=_NO_OP_ARGS,
-        kwargs=_NO_OP_KWARGS,
-    ):
+        objects: Iterable[Any],
+        exclude_hidden: bool = True,
+        log: Logger | None = None,
+        executor_factory: ExecutorFactory
+        | Callable[[], futures.Executor]
+        | None = None,
+        cond_cls: type[threading.Condition] = threading.Condition,
+        event_cls: type[threading.Event] = threading.Event,
+        schedule_strategy: str = 'last_started',
+        now_func: Callable[[], float] = utils.now,
+        on_failure: _OnFailureCallback | None = None,
+        args: tuple[Any, ...] = _NO_OP_ARGS,
+        kwargs: dict[str, Any] = _NO_OP_KWARGS,
+    ) -> PeriodicWorker:
         """Automatically creates a worker by analyzing object(s) methods.
 
         Only picks up methods that have been tagged/decorated with
@@ -515,7 +585,9 @@ class PeriodicWorker:
         :param kwargs: keyword arguments to be passed to all callables
         :type kwargs: dict
         """
-        callables = []
+        callables: list[
+            tuple[Callable[..., Any], tuple[Any, ...], dict[str, Any]]
+        ] = []
         for obj in objects:
             for name, member in inspect.getmembers(obj):
                 if name.startswith("_") and exclude_hidden:
@@ -537,15 +609,23 @@ class PeriodicWorker:
 
     def __init__(
         self,
-        callables,
-        log=None,
-        executor_factory=None,
-        cond_cls=threading.Condition,
-        event_cls=threading.Event,
-        schedule_strategy='last_started',
-        now_func=utils.now,
-        on_failure=None,
-    ):
+        callables: Iterable[
+            tuple[
+                Callable[..., Any],
+                tuple[Any, ...] | None,
+                dict[str, Any] | None,
+            ]
+        ],
+        log: Logger | None = None,
+        executor_factory: ExecutorFactory
+        | Callable[[], futures.Executor]
+        | None = None,
+        cond_cls: type[threading.Condition] = threading.Condition,
+        event_cls: type[threading.Event] = threading.Event,
+        schedule_strategy: str = 'last_started',
+        now_func: Callable[[], float] = utils.now,
+        on_failure: _OnFailureCallback | None = None,
+    ) -> None:
         """Creates a new worker using the given periodic callables.
 
         :param callables: a iterable of tuple objects previously decorated
@@ -625,7 +705,7 @@ class PeriodicWorker:
                     f"Periodic callback {cb!r} missing required"
                     f" attributes {missing_attrs}"
                 )
-            if cb._is_periodic:
+            if cb._is_periodic:  # type: ignore[attr-defined]
                 # Ensure these aren't none and if so replace them with
                 # something more appropriate...
                 if args is None:
@@ -653,8 +733,8 @@ class PeriodicWorker:
         self._log = log or LOG
         if executor_factory is None:
 
-            def executor_factory():
-                return futurist.SynchronousExecutor()
+            def executor_factory() -> futures.Executor:
+                return futurist.SynchronousExecutor()  # type: ignore[no-any-return]
 
         if on_failure is None:
             on_failure = functools.partial(_on_failure_log, self._log)
@@ -662,16 +742,21 @@ class PeriodicWorker:
         self._executor_factory = executor_factory
         self._now_func = now_func
 
-    def __len__(self):
+    def __len__(self) -> int:
         """How many callables/periodic work units are currently active."""
         return len(self._works)
 
-    def _run(self, executor, runner, auto_stop_when_empty):
+    def _run(
+        self,
+        executor: futures.Executor,
+        runner: _Runner,
+        auto_stop_when_empty: bool,
+    ) -> None:
         """Main worker run loop."""
         barrier = utils.Barrier(cond_cls=self._cond_cls)
         rnd = random.SystemRandom()
 
-        def _process_scheduled():
+        def _process_scheduled() -> None:
             # Figure out when we should run next (by selecting the
             # minimum item from the heap, where the minimum should be
             # the callable that needs to run next and has the lowest
@@ -729,7 +814,7 @@ class PeriodicWorker:
                     when_next = min(when_next, self.MAX_LOOP_IDLE)
                     self._waiter.wait(when_next)
 
-        def _process_immediates():
+        def _process_immediates() -> None:
             with self._waiter:
                 try:
                     index = self._immediates.popleft()
@@ -760,20 +845,26 @@ class PeriodicWorker:
                             )
                         )
 
-        def _on_done(kind, work, index, submitted_at, fut):
+        def _on_done(
+            kind: str,
+            work: Work,
+            index: int,
+            submitted_at: float,
+            fut: futures.Future[tuple[float, float, utils.Failure | None]],
+        ) -> None:
             cb = work.callback
             started_at, finished_at, failure = fut.result()
             cb_metrics, _watcher = self._watchers[index]
-            cb_metrics['runs'] += 1
+            cb_metrics['runs'] = int(cb_metrics['runs']) + 1
             schedule_again = True
             if failure is not None:
                 if not issubclass(failure.exc_type, NeverAgain):
-                    cb_metrics['failures'] += 1
+                    cb_metrics['failures'] = int(cb_metrics['failures']) + 1
                     try:
                         self._on_failure(
                             cb,
                             kind,
-                            cb._periodic_spacing,
+                            cb._periodic_spacing,  # type: ignore[attr-defined]
                             failure.exc_info,
                             traceback=failure.traceback,
                         )
@@ -785,7 +876,7 @@ class PeriodicWorker:
                             exc,
                         )
                 else:
-                    cb_metrics['successes'] += 1
+                    cb_metrics['successes'] = int(cb_metrics['successes']) + 1
                     schedule_again = False
                     self._log.debug(
                         "Periodic callback '%s' raised "
@@ -795,11 +886,13 @@ class PeriodicWorker:
                         work.name,
                     )
             else:
-                cb_metrics['successes'] += 1
+                cb_metrics['successes'] = int(cb_metrics['successes']) + 1
             elapsed = max(0, finished_at - started_at)
             elapsed_waiting = max(0, started_at - submitted_at)
-            cb_metrics['elapsed'] += elapsed
-            cb_metrics['elapsed_waiting'] += elapsed_waiting
+            cb_metrics['elapsed'] = float(cb_metrics['elapsed']) + elapsed
+            cb_metrics['elapsed_waiting'] = (
+                float(cb_metrics['elapsed_waiting']) + elapsed_waiting
+            )
             with self._waiter:
                 with barrier.decr_cm() as am_left:
                     if schedule_again:
@@ -826,7 +919,7 @@ class PeriodicWorker:
         finally:
             barrier.wait()
 
-    def _on_finish(self):
+    def _on_finish(self) -> None:
         # TODO(harlowja): this may be to verbose for people?
         if not self._log.isEnabledFor(logging.DEBUG):
             return
@@ -841,27 +934,30 @@ class PeriodicWorker:
             else "statistics not available, PrettyTable missing",
         )
 
-    def pformat(self, columns=_DEFAULT_COLS):
+    def pformat(self, columns: Iterable[str] = _DEFAULT_COLS) -> str:
         if prettytable is None:
             raise ImportError(
                 "PrettyTable is required to use the pformat method"
             )
         # Convert to a list to ensure we maintain the same order when used
         # further in this function (since order will matter)...
+        columns_list: list[str] | tuple[str, ...]
         if not isinstance(columns, (list, tuple)):
-            columns = list(columns)
-        if not columns:
+            columns_list = list(columns)
+        else:
+            columns_list = columns
+        if not columns_list:
             raise ValueError(
                 f"At least one of {set(_DEFAULT_COLS)} columns must"
                 " be provided"
             )
-        for c in columns:
+        for c in columns_list:
             if c not in _DEFAULT_COLS:
                 raise ValueError(
                     f"Unknown column '{c}', valid column names"
                     f" are {set(_DEFAULT_COLS)}"
                 )
-        tbl_rows = []
+        tbl_rows: list[dict[str, Any]] = []
         now = self._now_func()
         for index, work in enumerate(self._works):
             _cb_metrics, watcher = self._watchers[index]
@@ -875,10 +971,10 @@ class PeriodicWorker:
             else:
                 active = False
                 runs_in = f"{max(0.0, next_run - now):0.4f}s"
-            cb_row = {
+            cb_row: dict[str, Any] = {
                 'Name': work.name,
                 'Active': active,
-                'Periodicity': work.callback._periodic_spacing,
+                'Periodicity': work.callback._periodic_spacing,  # type: ignore[attr-defined]
                 'Runs': watcher.runs,
                 'Runs in': runs_in,
                 'Failures': watcher.failures,
@@ -897,15 +993,17 @@ class PeriodicWorker:
             tbl_rows.append(cb_row)
         # Now form the table, but use only the columns that the caller
         # asked for (and in the order they asked for...)
-        tbl = prettytable.PrettyTable(columns)
+        tbl = prettytable.PrettyTable(columns_list)
         for cb_row in tbl_rows:
-            tbl_row = []
-            for c in columns:
+            tbl_row: list[Any] = []
+            for c in columns_list:
                 tbl_row.append(cb_row[c])
             tbl.add_row(tbl_row)
         return tbl.get_string()
 
-    def add(self, cb, *args, **kwargs):
+    def add(
+        self, cb: Callable[_P, _R], *args: _P.args, **kwargs: _P.kwargs
+    ) -> Watcher | None:
         """Adds a new periodic callback to the current worker.
 
         Returns a :py:class:`.Watcher` if added successfully or the value
@@ -924,7 +1022,7 @@ class PeriodicWorker:
                 f"Periodic callback {cb!r} missing required"
                 f" attributes {missing_attrs}"
             )
-        if not cb._is_periodic:
+        if not cb._is_periodic:  # type: ignore[attr-defined]
             return None
         now = self._now_func()
         with self._waiter:
@@ -934,7 +1032,7 @@ class PeriodicWorker:
             watcher = Watcher(cb_metrics, work)
             self._works.append(work)
             self._watchers.append((cb_metrics, watcher))
-            if cb._periodic_run_immediately:
+            if cb._periodic_run_immediately:  # type: ignore[attr-defined]
                 self._immediates.append(cb_index)
             else:
                 next_run = self._initial_schedule_strategy(cb, now)
@@ -942,7 +1040,9 @@ class PeriodicWorker:
             self._waiter.notify_all()
             return watcher
 
-    def start(self, allow_empty=False, auto_stop_when_empty=False):
+    def start(
+        self, allow_empty: bool = False, auto_stop_when_empty: bool = False
+    ) -> None:
         """Starts running (will not return until :py:meth:`.stop` is called).
 
         :param allow_empty: instead of running with no callbacks raise when
@@ -994,18 +1094,18 @@ class PeriodicWorker:
             self._active.clear()
             self._on_finish()
 
-    def stop(self):
+    def stop(self) -> None:
         """Sets the tombstone (this stops any further executions)."""
         with self._waiter:
             self._tombstone.set()
             self._waiter.notify_all()
 
-    def iter_watchers(self):
+    def iter_watchers(self) -> Generator[Watcher, None, None]:
         """Iterator/generator over all the currently maintained watchers."""
         for _cb_metrics, watcher in self._watchers:
             yield watcher
 
-    def reset(self):
+    def reset(self) -> None:
         """Resets the workers internal state."""
         self._tombstone.clear()
         self._dead.clear()
@@ -1019,7 +1119,7 @@ class PeriodicWorker:
             self._now_func, self._works, self._initial_schedule_strategy
         )
 
-    def wait(self, timeout=None):
+    def wait(self, timeout: float | None = None) -> bool:
         """Waits for the :py:meth:`.start` method to gracefully exit.
 
         An optional timeout can be provided, which will cause the method to

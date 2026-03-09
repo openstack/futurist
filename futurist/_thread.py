@@ -15,7 +15,14 @@ from __future__ import annotations
 import atexit
 import queue
 import threading
+from typing import TYPE_CHECKING
 import weakref
+
+from futurist import _utils
+
+if TYPE_CHECKING:
+    from concurrent.futures import Executor
+    from typing_extensions import Self
 
 
 class Threading:
@@ -38,7 +45,9 @@ class Threading:
         return threading.Condition(lock=lock)
 
 
-_to_be_cleaned = weakref.WeakKeyDictionary()
+_to_be_cleaned: weakref.WeakKeyDictionary[ThreadWorker, bool] = (
+    weakref.WeakKeyDictionary()
+)
 _dying = False
 
 
@@ -49,7 +58,11 @@ class _Stopping(Exception):
 class ThreadWorker(threading.Thread):
     MAX_IDLE_FOR = 1
 
-    def __init__(self, executor, work_queue):
+    def __init__(
+        self,
+        executor: Executor,
+        work_queue: queue.Queue[_utils.WorkItem],
+    ) -> None:
         super().__init__()
         self.work_queue = work_queue
         self.should_stop = False
@@ -60,7 +73,11 @@ class ThreadWorker(threading.Thread):
         self.executor_ref = weakref.ref(executor, lambda _obj: self.stop())
 
     @classmethod
-    def create_and_register(cls, executor, work_queue):
+    def create_and_register(
+        cls,
+        executor: Executor,
+        work_queue: queue.Queue[_utils.WorkItem],
+    ) -> Self:
         w = cls(executor, work_queue)
         # Ensure that on shutdown, if threads still exist that we get
         # around to cleaning them up and waiting for them to correctly stop.
@@ -70,7 +87,7 @@ class ThreadWorker(threading.Thread):
         _to_be_cleaned[w] = True
         return w
 
-    def _is_dying(self):
+    def _is_dying(self) -> bool:
         if self.should_stop or _dying:
             return True
         executor = self.executor_ref()
@@ -81,7 +98,7 @@ class ThreadWorker(threading.Thread):
         del executor
         return False
 
-    def _wait_for_work(self):
+    def _wait_for_work(self) -> _utils.WorkItem:
         self.idle = True
         work = None
         while work is None:
@@ -93,10 +110,10 @@ class ThreadWorker(threading.Thread):
         self.idle = False
         return work
 
-    def stop(self):
+    def stop(self) -> None:
         self.should_stop = True
 
-    def run(self):
+    def run(self) -> None:
         while not self._is_dying():
             try:
                 work = self._wait_for_work()
@@ -113,7 +130,7 @@ class ThreadWorker(threading.Thread):
                 del work
 
 
-def _clean_up():
+def _clean_up() -> None:
     """Ensure all threads that were created were destroyed cleanly."""
     global _dying
     _dying = True

@@ -94,12 +94,12 @@ class TestWaiters(testscenarios.TestWithScenarios, base.TestCase):
                     mini_delay, use_eventlet_sleep=self.use_eventlet_sleep
                 )
             )
-        all_done_fs = []
+        all_done_fs: list[futurist.Future[int]] = []
         total_fs = len(fs)
         while len(all_done_fs) != total_fs:
             done, not_done = waiters.wait_for_any(fs)
             all_done_fs.extend(done)
-            fs = not_done
+            fs = list(not_done)
         self.assertEqual(total_fs, sum(f.result() for f in all_done_fs))
 
     def test_wait_for_all(self):

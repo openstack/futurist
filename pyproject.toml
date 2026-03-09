@@ -24,6 +24,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
 ]
 
 [project.urls]
@@ -50,3 +51,17 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "futurist/tests/*" = ["S"]
+
+[tool.mypy]
+python_version = "3.10"
+show_column_numbers = true
+show_error_context = true
+strict = true
+ignore_missing_imports = true
+exclude = '(?x)(doc | releasenotes)'
+
+[[tool.mypy.overrides]]
+module = ["futurist.tests.*"]
+disallow_untyped_calls = false
+disallow_untyped_defs = false
+disallow_subclassing_any = false

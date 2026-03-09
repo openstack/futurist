@@ -12,13 +12,21 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from __future__ import annotations
+
+from collections.abc import Callable, Generator
+from concurrent import futures
 import contextlib
-import inspect
 import multiprocessing
 import sys
 import threading
 from time import monotonic
 import traceback
+from types import TracebackType
+from typing import Any, ParamSpec, TypeAlias, TypeVar
+
+_P = ParamSpec('_P')
+_R = TypeVar('_R')
 
 now = monotonic
 
@@ -30,16 +38,29 @@ except ImportError:
     EVENTLET_AVAILABLE = False
 
 
-class WorkItem:
-    """A thing to be executed by a executor."""
+ExcInfoT: TypeAlias = tuple[
+    type[BaseException] | None,
+    BaseException | None,
+    TracebackType | None,
+]
 
-    def __init__(self, future, fn, *args, **kwargs):
+
+class WorkItem:
+    """A thing to be executed by an executor."""
+
+    def __init__(
+        self,
+        future: futures.Future[_R],
+        fn: Callable[_P, _R],
+        *args: _P.args,
+        **kwargs: _P.kwargs,
+    ) -> None:
         self.future = future
         self.fn = fn
         self.args = args
         self.kwargs = kwargs
 
-    def run(self):
+    def run(self) -> None:
         if not self.future.set_running_or_notify_cancel():
             return
         try:
@@ -54,7 +75,7 @@ class WorkItem:
         else:
             self.future.set_result(result)
 
-    def fail(self, exc_info=None):
+    def fail(self, exc_info: ExcInfoT | None = None) -> None:
         exc_type, exc_value, exc_tb = exc_info or sys.exc_info()
         try:
             self.future.set_exception(exc_value)
@@ -66,17 +87,21 @@ class WorkItem:
 class Failure:
     """Object that captures a exception (and its associated information)."""
 
-    def __init__(self, retain_tb):
+    exc_info: ExcInfoT
+    traceback: str | None
+
+    def __init__(self, retain_tb: bool) -> None:
         exc_info = sys.exc_info()
         if not any(exc_info):
             raise RuntimeError(
-                "No active exception being handled, can"
-                " not create a failure which represents"
-                " nothing"
+                "No active exception being handled, can "
+                "not create a failure which represents"
+                "nothing"
             )
+
         try:
             if retain_tb:
-                self.exc_info = tuple(exc_info)
+                self.exc_info = exc_info
                 self.traceback = None
             else:
                 self.exc_info = (exc_info[0], exc_info[1], None)
@@ -85,15 +110,19 @@ class Failure:
             del exc_info
 
     @property
-    def exc_type(self):
-        return self.exc_info[0]
+    def exc_type(self) -> type[BaseException]:
+        exc_type = self.exc_info[0]
+        assert exc_type is not None
+        return exc_type
 
     @property
-    def exc_value(self):
-        return self.exc_info[1]
+    def exc_value(self) -> BaseException:
+        exc_value = self.exc_info[1]
+        assert exc_value is not None
+        return exc_value
 
 
-def get_callback_name(cb):
+def get_callback_name(cb: Callable[..., Any]) -> str:
     """Tries to get a callbacks fully-qualified name.
 
     If no name can be produced ``repr(cb)`` is called and returned.
@@ -104,29 +133,23 @@ def get_callback_name(cb):
     except AttributeError:
         try:
             segments.append(cb.__name__)
-            if inspect.ismethod(cb):
-                try:
-                    # This attribute doesn't exist on py3.x or newer, so
-                    # we optionally ignore it... (on those versions of
-                    # python `__qualname__` should have been found anyway).
-                    segments.insert(0, cb.im_class.__name__)
-                except AttributeError:
-                    pass
         except AttributeError:
             pass
+
     if not segments:
         return repr(cb)
-    else:
-        try:
-            # When running under sphinx it appears this can be none?
-            if cb.__module__:
-                segments.insert(0, cb.__module__)
-        except AttributeError:
-            pass
-        return ".".join(segments)
+
+    try:
+        # When running under sphinx it appears this can be none?
+        if cb.__module__:
+            segments.insert(0, cb.__module__)
+    except AttributeError:
+        pass
+
+    return ".".join(segments)
 
 
-def get_optimal_thread_count(default=5):
+def get_optimal_thread_count(default: int = 5) -> int:
     """Try to guess optimal thread count for current system."""
     try:
         return multiprocessing.cpu_count() * 5
@@ -134,7 +157,7 @@ def get_optimal_thread_count(default=5):
         return default
 
 
-def get_optimal_process_count(default=1):
+def get_optimal_process_count(default: int = 1) -> int:
     """Try to guess optimal process count for current system."""
     try:
         return multiprocessing.cpu_count()
@@ -145,21 +168,23 @@ def get_optimal_process_count(default=1):
 class Barrier:
     """A class that ensures active <= 0 occur before unblocking."""
 
-    def __init__(self, cond_cls=threading.Condition):
+    def __init__(
+        self, cond_cls: type[threading.Condition] = threading.Condition
+    ) -> None:
         self._active = 0
         self._cond = cond_cls()
 
     @property
-    def active(self):
+    def active(self) -> int:
         return self._active
 
-    def incr(self):
+    def incr(self) -> None:
         with self._cond:
             self._active += 1
             self._cond.notify_all()
 
     @contextlib.contextmanager
-    def decr_cm(self):
+    def decr_cm(self) -> Generator[int, None, None]:
         with self._cond:
             self._active -= 1
             try:
@@ -167,12 +192,12 @@ class Barrier:
             finally:
                 self._cond.notify_all()
 
-    def decr(self):
+    def decr(self) -> None:
         with self._cond:
             self._active -= 1
             self._cond.notify_all()
 
-    def wait(self):
+    def wait(self) -> None:
         with self._cond:
             while self._active > 0:
                 self._cond.wait()
