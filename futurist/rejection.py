@@ -22,9 +22,10 @@ def reject_when_reached(max_backlog):
 
     def _rejector(executor, backlog):
         if backlog >= max_backlog:
-            raise futurist.RejectedSubmission("Current backlog %s is not"
-                                              " allowed to go"
-                                              " beyond %s" % (backlog,
-                                                              max_backlog))
+            raise futurist.RejectedSubmission(
+                f"Current backlog {backlog} is not"
+                " allowed to go"
+                f" beyond {max_backlog}"
+            )
 
     return _rejector

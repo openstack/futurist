@@ -24,6 +24,7 @@ now = monotonic
 
 try:
     import eventlet as _eventlet  # noqa
+
     EVENTLET_AVAILABLE = True
 except ImportError:
     EVENTLET_AVAILABLE = False
@@ -68,9 +69,11 @@ class Failure:
     def __init__(self, retain_tb):
         exc_info = sys.exc_info()
         if not any(exc_info):
-            raise RuntimeError("No active exception being handled, can"
-                               " not create a failure which represents"
-                               " nothing")
+            raise RuntimeError(
+                "No active exception being handled, can"
+                " not create a failure which represents"
+                " nothing"
+            )
         try:
             if retain_tb:
                 self.exc_info = tuple(exc_info)

@@ -17,7 +17,6 @@ import weakref
 
 
 class Threading:
-
     @staticmethod
     def event_object(*args, **kwargs):
         return threading.Event(*args, **kwargs)

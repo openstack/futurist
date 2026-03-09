@@ -22,8 +22,12 @@ try:
 
     from eventlet.green import threading as greenthreading
 except ImportError:
-    greenpatcher, greenpool, greenqueue, greenthreading = (None, None,
-                                                           None, None)
+    greenpatcher, greenpool, greenqueue, greenthreading = (
+        None,
+        None,
+        None,
+        None,
+    )
 
 
 if _utils.EVENTLET_AVAILABLE:
@@ -33,7 +37,6 @@ if _utils.EVENTLET_AVAILABLE:
     is_monkey_patched = greenpatcher.is_monkey_patched
 
     class GreenThreading:
-
         @staticmethod
         def event_object(*args, **kwargs):
             return greenthreading.Event(*args, **kwargs)
@@ -55,7 +58,9 @@ else:
     threading = None
     Pool = None
     Queue = None
-    is_monkey_patched = lambda mod: False
+
+    def is_monkey_patched(mod):
+        return False
 
 
 class GreenWorker:

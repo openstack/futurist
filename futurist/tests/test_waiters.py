@@ -24,6 +24,7 @@ from futurist import waiters
 # executor can not access instance or lambda level functions (since those
 # are not pickleable).
 
+
 def mini_delay(use_eventlet_sleep=False):
     if use_eventlet_sleep:
         eventlet.sleep(0.1)
@@ -34,17 +35,46 @@ def mini_delay(use_eventlet_sleep=False):
 
 class TestWaiters(testscenarios.TestWithScenarios, base.TestCase):
     scenarios = [
-        ('sync', {'executor_cls': futurist.SynchronousExecutor,
-                  'executor_kwargs': {}, 'use_eventlet_sleep': False}),
-        ('green_sync', {'executor_cls': futurist.SynchronousExecutor,
-                        'executor_kwargs': {'green': True},
-                        'use_eventlet_sleep': True}),
-        ('green', {'executor_cls': futurist.GreenThreadPoolExecutor,
-                   'executor_kwargs': {}, 'use_eventlet_sleep': True}),
-        ('thread', {'executor_cls': futurist.ThreadPoolExecutor,
-                    'executor_kwargs': {}, 'use_eventlet_sleep': False}),
-        ('process', {'executor_cls': futurist.ProcessPoolExecutor,
-                     'executor_kwargs': {}, 'use_eventlet_sleep': False}),
+        (
+            'sync',
+            {
+                'executor_cls': futurist.SynchronousExecutor,
+                'executor_kwargs': {},
+                'use_eventlet_sleep': False,
+            },
+        ),
+        (
+            'green_sync',
+            {
+                'executor_cls': futurist.SynchronousExecutor,
+                'executor_kwargs': {'green': True},
+                'use_eventlet_sleep': True,
+            },
+        ),
+        (
+            'green',
+            {
+                'executor_cls': futurist.GreenThreadPoolExecutor,
+                'executor_kwargs': {},
+                'use_eventlet_sleep': True,
+            },
+        ),
+        (
+            'thread',
+            {
+                'executor_cls': futurist.ThreadPoolExecutor,
+                'executor_kwargs': {},
+                'use_eventlet_sleep': False,
+            },
+        ),
+        (
+            'process',
+            {
+                'executor_cls': futurist.ProcessPoolExecutor,
+                'executor_kwargs': {},
+                'use_eventlet_sleep': False,
+            },
+        ),
     ]
 
     def setUp(self):
@@ -59,8 +89,11 @@ class TestWaiters(testscenarios.TestWithScenarios, base.TestCase):
     def test_wait_for_any(self):
         fs = []
         for _i in range(0, 10):
-            fs.append(self.executor.submit(
-                mini_delay, use_eventlet_sleep=self.use_eventlet_sleep))
+            fs.append(
+                self.executor.submit(
+                    mini_delay, use_eventlet_sleep=self.use_eventlet_sleep
+                )
+            )
         all_done_fs = []
         total_fs = len(fs)
         while len(all_done_fs) != total_fs:
@@ -72,8 +105,11 @@ class TestWaiters(testscenarios.TestWithScenarios, base.TestCase):
     def test_wait_for_all(self):
         fs = []
         for _i in range(0, 10):
-            fs.append(self.executor.submit(
-                mini_delay, use_eventlet_sleep=self.use_eventlet_sleep))
+            fs.append(
+                self.executor.submit(
+                    mini_delay, use_eventlet_sleep=self.use_eventlet_sleep
+                )
+            )
         done_fs, not_done_fs = waiters.wait_for_all(fs)
         self.assertEqual(len(fs), sum(f.result() for f in done_fs))
         self.assertEqual(0, len(not_done_fs))
