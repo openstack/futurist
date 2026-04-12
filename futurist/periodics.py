@@ -734,7 +734,7 @@ class PeriodicWorker:
         if executor_factory is None:
 
             def executor_factory() -> futures.Executor:
-                return futurist.SynchronousExecutor()  # type: ignore[no-any-return]
+                return futurist.SynchronousExecutor()
 
         if on_failure is None:
             on_failure = functools.partial(_on_failure_log, self._log)

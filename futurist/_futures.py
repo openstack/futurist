@@ -507,7 +507,7 @@ class SynchronousExecutor(_futures.Executor):
 
     threading = _thread.Threading()
 
-    @removals.removed_kwarg(  # type: ignore[untyped-decorator]
+    @removals.removed_kwarg(
         'green',
         message="Eventlet support is deprecated. "
         "Please migrate your code and stop enforcing "
