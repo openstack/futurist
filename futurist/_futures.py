@@ -516,9 +516,9 @@ class SynchronousExecutor(_futures.Executor):
     def __init__(
         self,
         green: bool = False,
-        run_work_func: Callable[
-            [_utils.WorkItem], None
-        ] = lambda work: work.run(),
+        run_work_func: Callable[[_utils.WorkItem], None] = lambda work: (
+            work.run()
+        ),
     ) -> None:
         """Synchronous executor constructor.
 
