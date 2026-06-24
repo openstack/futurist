@@ -20,7 +20,7 @@ import logging
 import queue
 import threading
 import time
-from typing import Any, ParamSpec, TYPE_CHECKING, TypeVar
+from typing import Any, ParamSpec, Self, TypeVar
 
 from concurrent import futures as _futures
 from concurrent.futures import process as _process
@@ -30,9 +30,6 @@ from debtcollector import removals
 from futurist import _green
 from futurist import _thread
 from futurist import _utils
-
-if TYPE_CHECKING:
-    from typing_extensions import Self
 
 _P = ParamSpec('_P')
 _R = TypeVar('_R')

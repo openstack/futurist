@@ -13,16 +13,13 @@
 from __future__ import annotations
 
 import atexit
+from concurrent.futures import Executor
 import queue
 import threading
-from typing import TYPE_CHECKING
+from typing import Self
 import weakref
 
 from futurist import _utils
-
-if TYPE_CHECKING:
-    from concurrent.futures import Executor
-    from typing_extensions import Self
 
 
 class Threading:
