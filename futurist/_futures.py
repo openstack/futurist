@@ -463,12 +463,16 @@ class ProcessPoolExecutor(_process.ProcessPoolExecutor):
 
     threading = _thread.Threading()
 
-    def __init__(self, max_workers: int | None = None) -> None:
+    def __init__(
+        self,
+        max_workers: int | None = None,
+        mp_context: Any = None,
+    ) -> None:
         if max_workers is None:
             max_workers = _utils.get_optimal_process_count()
         if max_workers <= 0:
             raise ValueError("Max workers must be greater than zero")
-        super().__init__(max_workers=max_workers)
+        super().__init__(max_workers=max_workers, mp_context=mp_context)
         self._gatherer = _Gatherer(
             # Since our submit will use this gatherer we have to reference
             # the parent submit, bound to this instance (which is what we
