@@ -11,6 +11,7 @@
 # under the License.
 
 from concurrent import futures
+import multiprocessing
 import threading
 import time
 import unittest
@@ -93,7 +94,9 @@ class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
             {
                 'executor_cls': futurist.ProcessPoolExecutor,
                 'restartable': False,
-                'executor_kwargs': {},
+                'executor_kwargs': {
+                    'mp_context': multiprocessing.get_context('spawn'),
+                },
             },
         ),
     ]
