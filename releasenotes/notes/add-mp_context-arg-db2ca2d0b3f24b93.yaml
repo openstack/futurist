@@ -1,0 +1,8 @@
+---
+features:
+  - |
+    The ``ProcessPoolExecutor`` class now accepts the ``mp_context``.
+    Refer to `docs`__ for ``concurrent.futures.ProcessPoolExector`` for more
+    information.
+
+    .. __: https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ProcessPoolExecutor
