@@ -1023,7 +1023,7 @@ class DelayedExecutorMixinBase(_futures.Executor, abc.ABC):
         with self._queue_changed:
             if self._shutdown_requested:
                 raise RuntimeError(
-                    "Cannot schedule new tasks after being shutdown"
+                    "Cannot schedule new futures after being shutdown"
                 )
 
             task = self.Task(
