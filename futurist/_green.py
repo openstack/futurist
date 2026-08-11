@@ -28,8 +28,10 @@ try:
     from eventlet import queue as greenqueue
 
     from eventlet.green import threading as greenthreading
+    from eventlet import greenthread
 except ImportError:
-    greenpatcher, greenpool, greenqueue, greenthreading = (
+    greenpatcher, greenpool, greenqueue, greenthreading, greenthread = (
+        None,
         None,
         None,
         None,
@@ -42,6 +44,7 @@ if _utils.EVENTLET_AVAILABLE:
     Pool = greenpool.GreenPool
     Queue = greenqueue.Queue
     is_monkey_patched = greenpatcher.is_monkey_patched
+    spawn = greenthread.spawn
 
     class GreenThreading:
         @staticmethod
@@ -70,6 +73,8 @@ else:
 
     def is_monkey_patched(mod: str) -> bool:
         return False
+
+    spawn = None
 
 
 class GreenWorker:

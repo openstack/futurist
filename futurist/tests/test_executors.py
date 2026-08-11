@@ -34,6 +34,14 @@ def returns_one():
     return 1
 
 
+def returns_args(foo, bar):
+    return foo + bar
+
+
+def returns_clock():
+    return time.monotonic()
+
+
 def blows_up():
     raise RuntimeError("no worky")
 
@@ -410,3 +418,365 @@ class TestDynamicThreadPoolMaintain(base.TestCase):
         created_worker = mock_create_thread.return_value
         created_worker.start.assert_called_with()
         self.assertEqual(13, created_worker.start.call_count)
+
+
+class _GreenDelayedExecutor(
+    futurist.GreenDelayedExecutorMixin, futurist.GreenThreadPoolExecutor
+):
+    pass
+
+
+class _ThreadDelayedExecutor(
+    futurist.DelayedExecutorMixin, futurist.ThreadPoolExecutor
+):
+    pass
+
+
+class TestDelayedExecutorMixin(testscenarios.TestWithScenarios, base.TestCase):
+    executor_cls: type
+    scenarios = [
+        ('green', {'executor_cls': _GreenDelayedExecutor}),
+        ('thread', {'executor_cls': _ThreadDelayedExecutor}),
+    ]
+
+    def setUp(self):
+        super().setUp()
+        self.executor = self.executor_cls(max_workers=1)
+        self.addCleanup(self.executor.shutdown, wait=True)
+
+    def test_tasks_ordered_by_earliest_deadline(self):
+        def task(delay):
+            return self.executor.Task(lambda: None, (), {}, None, delay)
+
+        t10 = task(10)
+        t9 = task(9)
+        t11 = task(11)
+        t8 = task(8)
+        t1 = task(1)
+
+        self.assertEqual(
+            [t1, t8, t9, t10, t11], sorted([t10, t9, t11, t8, t1])
+        )
+
+    def test_execute_one(self):
+        task = self.executor.submit_after(0.1, returns_args, 13, bar=42)
+
+        self.assertEqual(13 + 42, task.result())
+
+    def test_execute_two_sequential(self):
+        task1 = self.executor.submit_after(0.1, returns_clock)
+        task2 = self.executor.submit_after(0.1, returns_clock)
+
+        t1_at = task1.result()
+        t2_at = task2.result()
+        self.assertLess(t1_at, t2_at)
+
+    def test_submit_second_while_waiting_on_first_sequential(self):
+        task1 = self.executor.submit_after(0.5, returns_clock)
+        time.sleep(0.2)
+        task2 = self.executor.submit_after(0.5, returns_clock)
+
+        t1_at = task1.result()
+        t2_at = task2.result()
+        self.assertLess(t1_at, t2_at)
+
+    def test_submit_second_preempts_first(self):
+        task1 = self.executor.submit_after(0.3, returns_clock)
+        task2 = self.executor.submit_after(0.1, returns_clock)
+
+        t1_at = task1.result()
+        t2_at = task2.result()
+        self.assertLess(t2_at, t1_at)
+
+    def test_submit_preempts_first_while_waiting(self):
+        task1 = self.executor.submit_after(0.5, returns_clock)
+        time.sleep(0.2)
+        task2 = self.executor.submit_after(0.1, returns_clock)
+
+        t1_at = task1.result()
+        t2_at = task2.result()
+        self.assertLess(t2_at, t1_at)
+
+    def test_zero_delay_executes(self):
+        """A zero-delay task executes without error."""
+        task = self.executor.submit_after(0, returns_one)
+        self.assertEqual(1, task.result(timeout=5))
+
+    def test_multiple_tasks_execute_in_delay_order(self):
+        """Three tasks with distinct delays finish in deadline order."""
+        # Submit in non-deadline order to prove the scheduler sorts by
+        # deadline, not by submission order: task_long is submitted first
+        # but has the furthest deadline, so task_medium (submitted second)
+        # must execute before it.
+        task_long = self.executor.submit_after(0.3, returns_clock)
+        task_medium = self.executor.submit_after(0.2, returns_clock)
+        task_short = self.executor.submit_after(0.1, returns_clock)
+
+        t_short = task_short.result()
+        t_medium = task_medium.result()
+        t_long = task_long.result()
+
+        self.assertLess(t_short, t_medium)
+        self.assertLess(t_medium, t_long)
+
+    def test_delayed_even_with_idle_workers(self):
+        """Non-zero delay is respected even when the executor has free workers.
+
+        With max_workers=4, all worker slots are available immediately.
+        The task must still wait for its full delay before executing.
+        """
+        executor = self.executor_cls(max_workers=4)
+        self.addCleanup(executor.shutdown, wait=True)
+
+        delay = 0.2
+        start = time.monotonic()
+        task = executor.submit_after(delay, returns_clock)
+        ran_at = task.result(timeout=10)
+        elapsed = ran_at - start
+
+        self.assertGreaterEqual(
+            elapsed,
+            delay,
+            "task ran before its scheduled delay elapsed",
+        )
+
+    def test_submit_after_raises_after_shutdown(self):
+        """submit_after raises RuntimeError once the executor is shut down."""
+        # Shut down the executor created in setUp and verify a subsequent
+        # submit_after call raises RuntimeError.  The addCleanup will call
+        # shutdown again, which is a safe no-op.
+        self.executor.shutdown(wait=True)
+        self.assertRaises(
+            RuntimeError, self.executor.submit_after, 0, returns_one
+        )
+
+    def test_cancel_before_deadline_skips_execution(self):
+        """Cancelling a future before its deadline prevents the callable
+        from running.
+        """
+        call_count = []
+
+        def fn():
+            call_count.append(1)
+            return 1
+
+        task = self.executor.submit_after(0.5, fn)
+        cancelled = task.cancel()
+
+        self.assertTrue(cancelled)
+        # Wait well past the deadline so the scheduler processes the
+        # cancellation even on a loaded CI system (0.5s deadline + 0.5s
+        # margin = 1.0s total).
+        time.sleep(1.0)
+        self.assertTrue(task.cancelled())
+        self.assertEqual([], call_count)
+
+    def test_exception_propagation(self):
+        """An exception raised by the callable is reflected in
+        future.exception().
+        """
+        task = self.executor.submit_after(0.1, blows_up)
+        self.assertRaises(RuntimeError, task.result)
+        self.assertIsInstance(task.exception(), RuntimeError)
+
+    def test_concurrent_submissions_all_complete(self):
+        """Many tasks submitted in rapid succession all complete."""
+        num_tasks = 20
+        futures_list = [
+            self.executor.submit_after(0.1, returns_one)
+            for _ in range(num_tasks)
+        ]
+        results = [f.result(timeout=30) for f in futures_list]
+        self.assertEqual([1] * num_tasks, results)
+
+    def test_executor_forwards_args_and_kwargs(self):
+        """The callable is invoked with the exact positional and keyword
+        args given to submit_after.
+        """
+        received = []
+
+        def capture(pos, *, kw):
+            received.append((pos, kw))
+            return pos + kw
+
+        task = self.executor.submit_after(0.1, capture, 7, kw=3)
+        result = task.result()
+
+        self.assertEqual(10, result)
+        self.assertEqual([(7, 3)], received)
+
+    def test_negative_delay_raises_value_error(self):
+        """submit_after rejects negative delay values immediately."""
+        self.assertRaises(
+            ValueError, self.executor.submit_after, -1, returns_one
+        )
+
+    def test_double_shutdown_is_safe(self):
+        """Calling shutdown() twice must not raise or deadlock."""
+        self.executor.shutdown(wait=True)
+        # Second call — must be a safe no-op.
+        self.executor.shutdown(wait=True)
+
+    def test_alive_false_after_no_wait_shutdown(self):
+        self.executor.shutdown(wait=False)
+        self.executor.shutdown(wait=True)  # drain
+        self.assertFalse(self.executor.alive)
+
+    def test_scheduler_thread_is_daemon(self):
+        if not isinstance(self.executor._scheduler, threading.Thread):
+            self.skipTest(
+                "daemon attribute only applies to native threading.Thread; "
+                "eventlet GreenThreads exit with the hub unconditionally"
+            )
+        self.assertTrue(
+            self.executor._scheduler.daemon,
+            "scheduler thread must be a daemon so the process can exit "
+            "cleanly if shutdown() is never called",
+        )
+
+    def test_shutdown_cancel_futures_cancels_pending_tasks(self):
+        """shutdown(cancel_futures=True) cancels tasks still in the queue."""
+        # Use a very long delay so both tasks are guaranteed to remain in the
+        # scheduler queue (i.e. well before their deadline) when shutdown is
+        # called.
+        task1 = self.executor.submit_after(100.0, returns_one)
+        task2 = self.executor.submit_after(100.0, returns_one)
+
+        self.executor.shutdown(cancel_futures=True, wait=True)
+
+        self.assertTrue(task1.cancelled(), "task1 should have been cancelled")
+        self.assertTrue(task2.cancelled(), "task2 should have been cancelled")
+
+    def test_alive_true_before_shutdown(self):
+        """The executor is alive as soon as it is created."""
+        self.assertTrue(self.executor.alive)
+
+    def test_alive_false_immediately_after_wait_true_shutdown(self):
+        self.assertTrue(self.executor.alive)
+        self.executor.shutdown(wait=True)
+        self.assertFalse(self.executor.alive)
+
+    def test_submit_after_raises_after_wait_false_shutdown(self):
+        self.executor.shutdown(wait=False)
+        self.assertRaises(
+            RuntimeError, self.executor.submit_after, 0, returns_one
+        )
+
+    def test_task_cancelled_while_in_queue_is_skipped(self):
+        call_count = []
+
+        def fn():
+            call_count.append(1)
+
+        # quick (0.1 s) has a shorter deadline than slow (100 s).
+        # The scheduler pops quick first, leaving slow in the queue.
+        quick = self.executor.submit_after(0.1, returns_one)
+        slow = self.executor.submit_after(100.0, fn)
+
+        # Cancel slow while the scheduler is busy waiting on quick's deadline.
+        # future.cancel() does NOT notify _queue_changed, so the scheduler
+        # is not woken; slow simply sits in the queue as CANCELLED.
+        self.assertTrue(slow.cancel())
+
+        # Wait for quick to complete; the scheduler then loops and pops slow.
+        self.assertEqual(1, quick.result(timeout=5))
+
+        # Shut down and wait for the scheduler to drain fully rather than
+        # sleeping for a fixed time, which would be racy on a loaded system.
+        self.executor.shutdown(wait=True)
+
+        self.assertTrue(slow.cancelled())
+        self.assertEqual([], call_count, "slow callable must not have run")
+
+    def test_task_cancelled_during_scheduler_wakeup_is_skipped(self):
+        call_count = []
+
+        def fn():
+            call_count.append(1)
+            return 1
+
+        # task_a has a long deadline — the scheduler pops it and waits.
+        task_a = self.executor.submit_after(5.0, fn)
+        # Ensure the scheduler has had time to pop task_a and begin waiting.
+        time.sleep(0.05)
+
+        # Cancel task_a (does NOT wake the scheduler on its own).
+        self.assertTrue(task_a.cancel())
+
+        # Submitting task_b calls notify_all, waking the scheduler.
+        # It finds changed=True and task_a.future.cancelled() → True,
+        # so it takes the L963-966 branch: continue without executing task_a.
+        task_b = self.executor.submit_after(0.1, returns_one)
+
+        self.assertEqual(1, task_b.result(timeout=5))
+        self.assertTrue(task_a.cancelled())
+        self.assertEqual([], call_count, "task_a callable must not have run")
+
+    def test_running_task_not_cancelled_by_cancel_futures(self):
+        executor = self.executor_cls(max_workers=2)
+        self.addCleanup(executor.shutdown, wait=True)
+
+        # Use futures compatible with the executor's threading model as
+        # synchronisation points.  In the green variant these are
+        # GreenFuture objects whose .result() yields to the eventlet hub,
+        # so the test and the worker interleave correctly without
+        # time.sleep() blocking the entire event loop.
+        running_signal = executor._get_future_object()
+        hold_signal = executor._get_future_object()
+
+        # Release hold_signal in cleanup so the worker is never left dangling
+        # if the test fails before the explicit set_result() call below.
+        def _release_hold():
+            try:
+                hold_signal.set_result(None)
+            except Exception:
+                pass  # already set by the test body
+
+        self.addCleanup(_release_hold)
+
+        def controlled_task():
+            running_signal.set_result(True)  # signal: task is now running
+            hold_signal.result(timeout=10)  # park until the test proceeds
+
+        slow_future = executor.submit_after(0.0, controlled_task)
+        # Block until controlled_task has actually started executing.  In the
+        # green variant GreenFuture.result() yields to the hub so the green
+        # worker can run and signal without blocking the event loop.
+        running_signal.result(timeout=10)
+
+        # At this point slow_future is in RUNNING state: the scheduler called
+        # set_running_or_notify_cancel() on it before dispatching to the inner
+        # executor, and controlled_task() is still parked at hold_signal.
+        # It is no longer in the delay queue, so cancel_futures=True cannot
+        # affect it.
+        self.assertTrue(
+            slow_future.running(),
+            "slow_future must be in RUNNING state before shutdown is called",
+        )
+
+        # Release the parked task so that shutdown(wait=True) can complete.
+        hold_signal.set_result(None)
+        executor.shutdown(cancel_futures=True, wait=True)
+
+        self.assertFalse(slow_future.cancelled())
+        self.assertTrue(slow_future.done())
+
+    def test_inner_submit_failure_propagated_to_future(self):
+        with mock.patch.object(
+            self.executor,
+            'submit',
+            side_effect=RuntimeError("injected dispatch failure"),
+        ):
+            future = self.executor.submit_after(0.0, returns_one)
+            exc = future.exception(timeout=5)
+
+        self.assertIsInstance(exc, RuntimeError)
+        self.assertIn("injected dispatch failure", str(exc))
+
+    def test_sentinel_task_has_no_future_attribute(self):
+        self.assertFalse(
+            hasattr(self.executor._sentinel, 'future'),
+            "_SentinelTask must not define a .future attribute — "
+            "the cancel-loop guard `if item is not self._sentinel` "
+            "exists precisely because it is absent.",
+        )

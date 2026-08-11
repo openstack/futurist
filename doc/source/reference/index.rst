@@ -26,6 +26,19 @@ Executors
     :members:
     :special-members: __init__
 
+~~~~~~~~~~~~~~~~~
+Delayed Executors
+~~~~~~~~~~~~~~~~~
+
+.. autoclass:: futurist.DelayedExecutorMixinBase
+    :members:
+
+.. autoclass:: futurist.DelayedExecutorMixin
+    :members:
+
+.. autoclass:: futurist.GreenDelayedExecutorMixin
+    :members:
+
 -------
 Futures
 -------

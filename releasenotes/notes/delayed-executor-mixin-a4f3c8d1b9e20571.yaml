@@ -1,0 +1,32 @@
+---
+features:
+  - |
+    Adds ``DelayedExecutorMixin`` and ``GreenDelayedExecutorMixin`` mixin
+    classes that extend any :class:`~concurrent.futures.Executor` subclass
+    with a ``submit_after(delay, fn, *args, **kwargs)`` method.
+
+    A single background scheduler thread maintains a min-heap of pending
+    tasks ordered by their deadline.  When a task's deadline arrives the
+    scheduler submits it to the underlying executor.  Tasks can be
+    cancelled while waiting for their deadline via the returned
+    :class:`~concurrent.futures.Future`.
+
+    Use ``DelayedExecutorMixin`` with native-thread executors (e.g.
+    :class:`~futurist.ThreadPoolExecutor`) and ``GreenDelayedExecutorMixin``
+    with eventlet-based executors (e.g.
+    :class:`~futurist.GreenThreadPoolExecutor`).  Each ``submit_after``
+    call accepts its own *delay* value, so different tasks submitted to the
+    same executor can have different delays.
+
+    Example::
+
+        class DelayedThreadExecutor(
+            futurist.DelayedExecutorMixin,
+            futurist.ThreadPoolExecutor,
+        ):
+            pass
+
+        executor = DelayedThreadExecutor(max_workers=4)
+        fut = executor.submit_after(0.5, my_func, arg1, kwarg=val)
+        result = fut.result()
+        executor.shutdown()
