@@ -19,6 +19,7 @@ from collections.abc import Callable
 import functools
 import heapq
 import logging
+import multiprocessing.context
 import queue
 import threading
 import time
@@ -466,7 +467,7 @@ class ProcessPoolExecutor(_process.ProcessPoolExecutor):
     def __init__(
         self,
         max_workers: int | None = None,
-        mp_context: Any = None,
+        mp_context: multiprocessing.context.BaseContext | None = None,
     ) -> None:
         if max_workers is None:
             max_workers = _utils.get_optimal_process_count()
