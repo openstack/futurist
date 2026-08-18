@@ -22,7 +22,7 @@ import logging
 import queue
 import threading
 import time
-import typing as ty
+from typing import Any, ParamSpec, Self, TypeVar
 
 from concurrent import futures as _futures
 from concurrent.futures import process as _process
@@ -33,8 +33,8 @@ from futurist import _green
 from futurist import _thread
 from futurist import _utils
 
-_P = ty.ParamSpec('_P')
-_R = ty.TypeVar('_R')
+_P = ParamSpec('_P')
+_R = TypeVar('_R')
 
 LOG = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ Future = _futures.Future
 class _Gatherer:
     def __init__(
         self,
-        submit_func: Callable[..., _futures.Future[ty.Any]],
+        submit_func: Callable[..., _futures.Future[Any]],
         lock_factory: Callable[[], threading.Lock],
         start_before_submit: bool = False,
     ) -> None:
@@ -71,7 +71,7 @@ class _Gatherer:
             self._stats = ExecutorStatistics()
 
     def _capture_stats(
-        self, started_at: float, fut: _futures.Future[ty.Any]
+        self, started_at: float, fut: _futures.Future[Any]
     ) -> None:
         """Capture statistics
 
@@ -141,7 +141,7 @@ class ThreadPoolExecutor(_futures.Executor):
     def __init__(
         self,
         max_workers: int | None = None,
-        check_and_reject: Callable[[ty.Self, int], None] | None = None,
+        check_and_reject: Callable[[Self, int], None] | None = None,
     ) -> None:
         """Initializes a thread pool executor.
 
@@ -299,7 +299,7 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
     def __init__(
         self,
         max_workers: int | None = None,
-        check_and_reject: Callable[[ty.Self, int], None] | None = None,
+        check_and_reject: Callable[[Self, int], None] | None = None,
         min_workers: int = 1,
         grow_threshold: float = 0.8,
         shrink_threshold: float = 0.4,
@@ -465,7 +465,7 @@ class ProcessPoolExecutor(_process.ProcessPoolExecutor):
     def __init__(
         self,
         max_workers: int | None = None,
-        mp_context: ty.Any = None,
+        mp_context: Any = None,
     ) -> None:
         if max_workers is None:
             max_workers = _utils.get_optimal_process_count()
@@ -543,7 +543,7 @@ class SynchronousExecutor(_futures.Executor):
         self._shutoff = False
         if green:
             self.threading = _green.threading  # type: ignore[assignment]
-            self._future_cls: type[Future[ty.Any]] = GreenFuture
+            self._future_cls: type[Future[Any]] = GreenFuture
         else:
             self._future_cls = Future
         self._run_work_func = run_work_func
@@ -601,7 +601,7 @@ class SynchronousExecutor(_futures.Executor):
     "Please migrate your code and stop using Green "
     "future.",
 )
-class GreenFuture(Future[ty.Any]):
+class GreenFuture(Future[Any]):
     __doc__ = Future.__doc__
 
     def __init__(self) -> None:
@@ -639,7 +639,7 @@ class GreenThreadPoolExecutor(_futures.Executor):
     def __init__(
         self,
         max_workers: int = 1000,
-        check_and_reject: Callable[[ty.Self, int], None] | None = None,
+        check_and_reject: Callable[[Self, int], None] | None = None,
     ) -> None:
         """Initializes a green thread pool executor.
 
@@ -663,11 +663,11 @@ class GreenThreadPoolExecutor(_futures.Executor):
         if max_workers <= 0:
             raise ValueError("Max workers must be greater than zero")
         self._max_workers = max_workers
-        self._pool: ty.Any = _green.Pool(self._max_workers)
-        self._delayed_work: ty.Any = _green.Queue()
+        self._pool: Any = _green.Pool(self._max_workers)
+        self._delayed_work: Any = _green.Queue()
         self._check_and_reject = check_and_reject or (lambda e, waiting: None)
         assert self.threading is not None
-        self._shutdown_lock: ty.Any = self.threading.lock_object()
+        self._shutdown_lock: Any = self.threading.lock_object()
         self._shutdown = False
         self._gatherer = _Gatherer(self._submit, self.threading.lock_object)
 
@@ -852,10 +852,10 @@ class DelayedExecutorMixinBase(_futures.Executor, abc.ABC):
 
         def __init__(
             self,
-            fn: ty.Callable[..., ty.Any],
-            args: tuple[ty.Any, ...],
-            kwargs: dict[str, ty.Any],
-            future: Future[ty.Any],
+            fn: Callable[..., Any],
+            args: tuple[Any, ...],
+            kwargs: dict[str, Any],
+            future: Future[Any],
             delay: float,
         ) -> None:
             self.fn = fn
@@ -897,7 +897,7 @@ class DelayedExecutorMixinBase(_futures.Executor, abc.ABC):
         def __repr__(self) -> str:
             return "SentinelTask"
 
-    def __init__(self, *args: ty.Any, **kwargs: ty.Any) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
         self._queue_changed = self._get_condition_object()
@@ -998,10 +998,10 @@ class DelayedExecutorMixinBase(_futures.Executor, abc.ABC):
     def submit_after(
         self,
         delay: float,
-        fn: ty.Callable[..., ty.Any],
-        *args: ty.Any,
-        **kwargs: ty.Any,
-    ) -> Future[ty.Any]:
+        fn: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> Future[Any]:
         """Schedule *fn* to run after *delay* seconds.
 
         :param delay: Number of seconds to wait before executing *fn*.
@@ -1099,15 +1099,15 @@ class DelayedExecutorMixinBase(_futures.Executor, abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def _get_future_object(self) -> Future[ty.Any]:
+    def _get_future_object(self) -> Future[Any]:
         raise NotImplementedError
 
     @abc.abstractmethod
-    def _start_thread(self, fn: ty.Callable[[], None]) -> ty.Any:
+    def _start_thread(self, fn: Callable[[], None]) -> Any:
         raise NotImplementedError
 
     @abc.abstractmethod
-    def _join_thread(self, t: ty.Any) -> None:
+    def _join_thread(self, t: Any) -> None:
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -1152,7 +1152,7 @@ class GreenDelayedExecutorMixin(DelayedExecutorMixinBase):
         return GreenFuture()
 
     @staticmethod
-    def _start_thread(fn: ty.Callable[[], None]) -> ty.Any:
+    def _start_thread(fn: Callable[[], None]) -> Any:
         if _green.spawn is None:
             raise RuntimeError(
                 "GreenDelayedExecutorMixin requires eventlet to be installed"
@@ -1160,7 +1160,7 @@ class GreenDelayedExecutorMixin(DelayedExecutorMixinBase):
         return _green.spawn(fn)
 
     @staticmethod
-    def _join_thread(t: ty.Any) -> None:
+    def _join_thread(t: Any) -> None:
         t.wait()
 
     def _is_scheduler_alive(self) -> bool:
@@ -1194,11 +1194,11 @@ class DelayedExecutorMixin(DelayedExecutorMixinBase):
         return threading.Condition()
 
     @staticmethod
-    def _get_future_object() -> Future[ty.Any]:
+    def _get_future_object() -> Future[Any]:
         return Future()
 
     @staticmethod
-    def _start_thread(fn: ty.Callable[[], None]) -> threading.Thread:
+    def _start_thread(fn: Callable[[], None]) -> threading.Thread:
         t = threading.Thread(
             target=fn,
             name="futurist-delayed-scheduler",
