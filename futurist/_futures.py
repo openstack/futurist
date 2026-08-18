@@ -22,7 +22,7 @@ import logging
 import queue
 import threading
 import time
-from typing import Any, ParamSpec, Self, TypeVar
+from typing import Any, Generic, ParamSpec, Self, TypeVar
 
 from concurrent import futures as _futures
 from concurrent.futures import process as _process
@@ -35,6 +35,7 @@ from futurist import _utils
 
 _P = ParamSpec('_P')
 _R = TypeVar('_R')
+T = TypeVar('T')
 
 LOG = logging.getLogger(__name__)
 
@@ -817,7 +818,7 @@ class ExecutorStatistics:
         )
 
 
-class DelayedExecutorMixinBase(_futures.Executor, abc.ABC):
+class DelayedExecutorMixinBase(_futures.Executor, abc.ABC, Generic[T]):
     """Mixin that adds submit_after(delay, fn, ...) to any Executor subclass.
 
     Maintains a single background scheduler thread that keeps a min-heap of
@@ -842,7 +843,7 @@ class DelayedExecutorMixinBase(_futures.Executor, abc.ABC):
         child worker processes, leading to hangs or deadlocks.
     """
 
-    class Task:
+    class Task(Generic[_R]):
         """A single delayed task entry in the scheduler priority queue.
 
         Instances are ordered by ``deadline`` so that the min-heap in
@@ -852,10 +853,10 @@ class DelayedExecutorMixinBase(_futures.Executor, abc.ABC):
 
         def __init__(
             self,
-            fn: Callable[..., Any],
+            fn: Callable[..., _R],
             args: tuple[Any, ...],
             kwargs: dict[str, Any],
-            future: Future[Any],
+            future: Future[_R],
             delay: float,
         ) -> None:
             self.fn = fn
@@ -880,7 +881,7 @@ class DelayedExecutorMixinBase(_futures.Executor, abc.ABC):
                 return NotImplemented
             return self.deadline < other.deadline
 
-    class _SentinelTask(Task):
+    class _SentinelTask(Task[Any]):
         """Sentinel pushed to the queue to signal the scheduler to exit.
 
         Inherits :class:`Task` so the scheduler queue can be typed as
@@ -903,7 +904,7 @@ class DelayedExecutorMixinBase(_futures.Executor, abc.ABC):
         self._queue_changed = self._get_condition_object()
         # A min-heap of Task instances (including the _SentinelTask
         # sentinel, which inherits Task and always sorts last).
-        self._queue: list[DelayedExecutorMixinBase.Task] = []
+        self._queue: list[DelayedExecutorMixinBase.Task[Any]] = []
 
         self._sentinel = self._SentinelTask()
 
@@ -912,7 +913,7 @@ class DelayedExecutorMixinBase(_futures.Executor, abc.ABC):
 
         self._scheduler = self._start_thread(self._schedule)
 
-    def _task_wrapper(self, task: Task) -> None:
+    def _task_wrapper(self, task: Task[Any]) -> None:
         try:
             task.future.set_result(task.fn(*task.args, **task.kwargs))
         except BaseException as e:
@@ -921,11 +922,11 @@ class DelayedExecutorMixinBase(_futures.Executor, abc.ABC):
     def _schedule(self) -> None:
         """Run the scheduler, submitting delayed tasks as they become due."""
         while True:
-            task_to_submit: DelayedExecutorMixinBase.Task | None = None
+            task_to_submit: DelayedExecutorMixinBase.Task[Any] | None = None
             with self._queue_changed:
                 LOG.debug("Waiting for task")
                 self._queue_changed.wait_for(lambda: bool(self._queue))
-                task: DelayedExecutorMixinBase.Task = heapq.heappop(
+                task: DelayedExecutorMixinBase.Task[Any] = heapq.heappop(
                     self._queue
                 )
                 LOG.debug("%s received", task)
@@ -998,10 +999,10 @@ class DelayedExecutorMixinBase(_futures.Executor, abc.ABC):
     def submit_after(
         self,
         delay: float,
-        fn: Callable[..., Any],
-        *args: Any,
-        **kwargs: Any,
-    ) -> Future[Any]:
+        fn: Callable[_P, _R],
+        *args: _P.args,
+        **kwargs: _P.kwargs,
+    ) -> _futures.Future[_R]:
         """Schedule *fn* to run after *delay* seconds.
 
         :param delay: Number of seconds to wait before executing *fn*.
@@ -1103,11 +1104,11 @@ class DelayedExecutorMixinBase(_futures.Executor, abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def _start_thread(self, fn: Callable[[], None]) -> Any:
+    def _start_thread(self, fn: Callable[[], None]) -> T:
         raise NotImplementedError
 
     @abc.abstractmethod
-    def _join_thread(self, t: Any) -> None:
+    def _join_thread(self, t: T) -> None:
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -1115,7 +1116,7 @@ class DelayedExecutorMixinBase(_futures.Executor, abc.ABC):
         raise NotImplementedError
 
 
-class GreenDelayedExecutorMixin(DelayedExecutorMixinBase):
+class GreenDelayedExecutorMixin(DelayedExecutorMixinBase[Any]):
     """Variant of :class:`DelayedExecutorMixinBase` that uses eventlet
     primitives.
 
@@ -1168,7 +1169,7 @@ class GreenDelayedExecutorMixin(DelayedExecutorMixinBase):
         return not self._scheduler.dead
 
 
-class DelayedExecutorMixin(DelayedExecutorMixinBase):
+class DelayedExecutorMixin(DelayedExecutorMixinBase[threading.Thread]):
     """Variant of :class:`DelayedExecutorMixinBase` that uses native threads.
 
     Use this class together with any standard-library
