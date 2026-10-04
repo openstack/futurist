@@ -34,6 +34,20 @@ Repository = "https://opendev.org/openstack/futurist"
 [tool.setuptools.packages.find]
 include = ["futurist*"]
 
+[tool.coverage.run]
+source = [
+    "futurist"
+]
+branch = true
+parallel = true
+omit = [
+    "futurist/tests/*"
+]
+
+[tool.coverage.report]
+ignore_errors = true
+show_missing = true
+
 [tool.ruff]
 line-length = 79
 
