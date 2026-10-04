@@ -14,6 +14,7 @@ from concurrent import futures
 import multiprocessing
 import threading
 import time
+from typing import Any
 import unittest
 from unittest import mock
 
@@ -55,7 +56,10 @@ def delayed_with_result(task_id):
     return task_id
 
 
-class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
+class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):  # type: ignore[misc]
+    executor_cls: type
+    executor_kwargs: dict[str, Any]
+    restartable: bool
     scenarios = [
         (
             'sync',
@@ -215,9 +219,12 @@ class TestExecutors(testscenarios.TestWithScenarios, base.TestCase):
         self.assertEqual(5, len(happy_completed))
 
 
-class TestRejection(testscenarios.TestWithScenarios, base.TestCase):
+class TestRejection(testscenarios.TestWithScenarios, base.TestCase):  # type: ignore[misc]
     rejector = rejection.reject_when_reached(1)
 
+    executor_cls: type
+    executor_kwargs: dict[str, Any]
+    event_cls: type[threading.Event]
     scenarios = [
         (
             'green',
@@ -432,7 +439,7 @@ class _ThreadDelayedExecutor(
     pass
 
 
-class TestDelayedExecutorMixin(testscenarios.TestWithScenarios, base.TestCase):
+class TestDelayedExecutorMixin(testscenarios.TestWithScenarios, base.TestCase):  # type: ignore[misc]
     executor_cls: type
     scenarios = [
         ('green', {'executor_cls': _GreenDelayedExecutor}),

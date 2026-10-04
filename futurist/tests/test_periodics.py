@@ -10,6 +10,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from collections.abc import Callable
 import contextlib
 import functools
 import threading
@@ -66,7 +67,13 @@ class TestPeriodicsStrategies(base.TestCase):
         )
 
 
-class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):
+class TestPeriodics(testscenarios.TestWithScenarios, base.TestCase):  # type: ignore[misc]
+    executor_cls: type
+    executor_kwargs: dict[str, Any]
+    create_destroy: Callable[..., contextlib.AbstractContextManager[None]]
+    sleep: Callable[[int | float], None]
+    event_cls: type[threading.Event]
+    worker_kwargs: dict[str, Any]
     scenarios = [
         (
             'sync',

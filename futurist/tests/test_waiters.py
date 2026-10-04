@@ -12,6 +12,7 @@
 
 import multiprocessing
 import time
+from typing import Any
 
 import eventlet
 import testscenarios
@@ -34,7 +35,10 @@ def mini_delay(use_eventlet_sleep=False):
     return 1
 
 
-class TestWaiters(testscenarios.TestWithScenarios, base.TestCase):
+class TestWaiters(testscenarios.TestWithScenarios, base.TestCase):  # type: ignore[misc]
+    executor_cls: type
+    executor_kwargs: dict[str, Any]
+    use_eventlet_sleep: bool
     scenarios = [
         (
             'sync',
