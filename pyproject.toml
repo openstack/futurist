@@ -31,6 +31,11 @@ classifiers = [
 Homepage = "https://docs.openstack.org/futurist"
 Repository = "https://opendev.org/openstack/futurist"
 
+[project.optional-dependencies]
+eventlet = [
+    "eventlet>=0.18.2", # MIT
+]
+
 [tool.setuptools.packages.find]
 include = ["futurist*"]
 
