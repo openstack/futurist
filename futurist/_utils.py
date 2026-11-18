@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Callable, Generator
 from concurrent import futures
 import contextlib
+import importlib.util
 import multiprocessing
 import sys
 import threading
@@ -30,11 +31,14 @@ _R = TypeVar('_R')
 
 now = monotonic
 
+# Look for eventlet without importing it: importing it costs several
+# megabytes in every process that imports futurist, and most never use a
+# green executor. The green helpers import it when they are first used.
 try:
-    import eventlet as _eventlet  # noqa
-
-    EVENTLET_AVAILABLE = True
+    EVENTLET_AVAILABLE = importlib.util.find_spec('eventlet') is not None
 except ImportError:
+    # An import hook can refuse eventlet, as services that run without it
+    # do to keep it out.
     EVENTLET_AVAILABLE = False
 
 

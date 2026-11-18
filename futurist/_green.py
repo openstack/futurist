@@ -15,66 +15,83 @@
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from futurist import _utils
 
 if TYPE_CHECKING:
     import threading as stdlib_threading
 
-try:
-    from eventlet import greenpool
-    from eventlet import patcher as greenpatcher
     from eventlet import queue as greenqueue
 
-    from eventlet.green import threading as greenthreading
-    from eventlet import greenthread
-except ImportError:
-    greenpatcher, greenpool, greenqueue, greenthreading, greenthread = (
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
+# eventlet is imported when a green helper is first used, not when this
+# module is imported, so that processes which never use one do not pay for
+# it. Pool, Queue and spawn are looked up by __getattr__ below on first use.
+Pool: Any
+Queue: Any
+spawn: Any
 
 
-if _utils.EVENTLET_AVAILABLE:
-    # Aliases that we use and only expose vs the whole of eventlet...
-    Pool = greenpool.GreenPool
-    Queue = greenqueue.Queue
-    is_monkey_patched = greenpatcher.is_monkey_patched
-    spawn = greenthread.spawn
+def __getattr__(name: str) -> Any:
+    global Pool, Queue, spawn
 
-    class GreenThreading:
-        @staticmethod
-        def event_object() -> stdlib_threading.Event:
-            return greenthreading.Event()  # type: ignore
+    if name not in ('Pool', 'Queue', 'spawn'):
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    if _utils.EVENTLET_AVAILABLE:
+        from eventlet import greenpool
+        from eventlet import greenthread
+        from eventlet import queue
 
-        @staticmethod
-        def lock_object() -> stdlib_threading.Lock:
-            return greenthreading.Lock()  # type: ignore
+        # Aliases that we use and only expose vs the whole of eventlet...
+        Pool = greenpool.GreenPool
+        Queue = queue.Queue
+        spawn = greenthread.spawn
+    else:
+        Pool = Queue = spawn = None
+    return globals()[name]
 
-        @staticmethod
-        def rlock_object() -> stdlib_threading.RLock:
-            return greenthreading.RLock()  # type: ignore
 
-        @staticmethod
-        def condition_object(
-            lock: stdlib_threading.Lock | stdlib_threading.RLock | None = None,
-        ) -> stdlib_threading.Condition:
-            return greenthreading.Condition(lock=lock)  # type: ignore
-
-    threading: GreenThreading | None = GreenThreading()
-else:
-    threading = None
-    Pool = None
-    Queue = None
-
-    def is_monkey_patched(mod: str) -> bool:
+def is_monkey_patched(mod: str) -> bool:
+    # Nothing can have been patched before eventlet was imported.
+    if 'eventlet' not in sys.modules:
         return False
+    from eventlet import patcher
 
-    spawn = None
+    return bool(patcher.is_monkey_patched(mod))
+
+
+class GreenThreading:
+    @staticmethod
+    def event_object() -> stdlib_threading.Event:
+        from eventlet.green import threading as greenthreading
+
+        return greenthreading.Event()  # type: ignore
+
+    @staticmethod
+    def lock_object() -> stdlib_threading.Lock:
+        from eventlet.green import threading as greenthreading
+
+        return greenthreading.Lock()  # type: ignore
+
+    @staticmethod
+    def rlock_object() -> stdlib_threading.RLock:
+        from eventlet.green import threading as greenthreading
+
+        return greenthreading.RLock()  # type: ignore
+
+    @staticmethod
+    def condition_object(
+        lock: stdlib_threading.Lock | stdlib_threading.RLock | None = None,
+    ) -> stdlib_threading.Condition:
+        from eventlet.green import threading as greenthreading
+
+        return greenthreading.Condition(lock=lock)  # type: ignore
+
+
+# Creating this imports nothing; its methods import eventlet when called.
+threading: GreenThreading | None = (
+    GreenThreading() if _utils.EVENTLET_AVAILABLE else None
+)
 
 
 class GreenWorker:
@@ -87,6 +104,8 @@ class GreenWorker:
         self.work_queue = work_queue
 
     def __call__(self) -> None:
+        from eventlet.queue import Empty
+
         # Run our main piece of work.
         try:
             self.work.run()
@@ -96,7 +115,7 @@ class GreenWorker:
                 while True:
                     try:
                         w = self.work_queue.get_nowait()
-                    except greenqueue.Empty:
+                    except Empty:
                         break
 
                     try:
@@ -113,7 +132,7 @@ class GreenWorker:
         while True:
             try:
                 w = self.work_queue.get_nowait()
-            except greenqueue.Empty:
+            except Empty:
                 break
             else:
                 try:

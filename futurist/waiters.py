@@ -24,12 +24,6 @@ from concurrent.futures import _base
 import futurist
 from futurist import _utils
 
-try:
-    from eventlet.green import threading as greenthreading
-except ImportError:
-    greenthreading = None
-
-
 _F = TypeVar('_F', bound=futures.Future[Any])
 
 
@@ -74,7 +68,7 @@ def _ensure_eventlet(func: _WaitFunc) -> _WaitFunc:
     def wrapper(
         fs: Iterable[futures.Future[Any]], timeout: float | None = None
     ) -> DoneAndNotDoneFutures:
-        if not _utils.EVENTLET_AVAILABLE or greenthreading is None:
+        if not _utils.EVENTLET_AVAILABLE:
             raise RuntimeError('Eventlet is needed to wait on green futures')
         return func(fs, timeout)
 
@@ -153,6 +147,8 @@ class _AllGreenWaiter:
     """Provides the event that ``_wait_for_all_green`` blocks on."""
 
     def __init__(self, pending: int) -> None:
+        from eventlet.green import threading as greenthreading
+
         self.event: Any = greenthreading.Event()
         self.lock: Any = greenthreading.Lock()
         self.pending = pending
@@ -177,6 +173,8 @@ class _AnyGreenWaiter:
     """Provides the event that ``_wait_for_any_green`` blocks on."""
 
     def __init__(self) -> None:
+        from eventlet.green import threading as greenthreading
+
         self.event: Any = greenthreading.Event()
 
     def add_result(self, future: futures.Future[Any]) -> None:
