@@ -88,7 +88,16 @@ class TestLazyEventlet(base.TestCase):
                     make()
                 except RuntimeError as e:
                     print(e)
-            print(_green.Pool, _green.spawn, _green.threading)
+            for get in (
+                _green.get_pool_class,
+                _green.get_queue_class,
+                _green.get_spawn,
+                _green.threading.lock_object,
+            ):
+                try:
+                    get()
+                except RuntimeError as e:
+                    print(e)
             """
         )
         self.assertEqual(
@@ -96,7 +105,10 @@ class TestLazyEventlet(base.TestCase):
                 'Eventlet is needed to use a green executor',
                 'Eventlet is needed to use a green future',
                 'Eventlet is needed to use a green synchronous executor',
-                'None None None',
+                'Eventlet is needed to use a green executor',
+                'Eventlet is needed to use a green executor',
+                'Eventlet is needed to use a green thread',
+                'Eventlet is needed to use green threading primitives',
             ],
             out,
         )

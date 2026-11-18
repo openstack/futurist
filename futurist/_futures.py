@@ -616,7 +616,6 @@ class GreenFuture(Future[Any]):
         # waiting on the future never actually causes the greenthreads to run
         # and thus you wait for infinity.
         if not _green.is_monkey_patched('thread'):
-            assert _green.threading is not None
             self._condition = _green.threading.condition_object()
 
 
@@ -665,11 +664,10 @@ class GreenThreadPoolExecutor(_futures.Executor):
         if max_workers <= 0:
             raise ValueError("Max workers must be greater than zero")
         self._max_workers = max_workers
-        self._pool: Any = _green.Pool(self._max_workers)
-        self._delayed_work: Any = _green.Queue()
+        self._pool = _green.get_pool_class()(self._max_workers)
+        self._delayed_work = _green.get_queue_class()()
         self._check_and_reject = check_and_reject or (lambda e, waiting: None)
-        assert self.threading is not None
-        self._shutdown_lock: Any = self.threading.lock_object()
+        self._shutdown_lock = self.threading.lock_object()
         self._shutdown = False
         self._gatherer = _Gatherer(self._submit, self.threading.lock_object)
 
@@ -1143,10 +1141,6 @@ class GreenDelayedExecutorMixin(DelayedExecutorMixinBase[Any]):
 
     @staticmethod
     def _get_condition_object() -> threading.Condition:
-        if _green.threading is None:
-            raise RuntimeError(
-                "GreenDelayedExecutorMixin requires eventlet to be installed"
-            )
         return _green.threading.condition_object()
 
     @staticmethod
@@ -1155,11 +1149,7 @@ class GreenDelayedExecutorMixin(DelayedExecutorMixinBase[Any]):
 
     @staticmethod
     def _start_thread(fn: Callable[[], None]) -> Any:
-        if _green.spawn is None:
-            raise RuntimeError(
-                "GreenDelayedExecutorMixin requires eventlet to be installed"
-            )
-        return _green.spawn(fn)
+        return _green.get_spawn()(fn)
 
     @staticmethod
     def _join_thread(t: Any) -> None:

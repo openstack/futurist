@@ -14,41 +14,68 @@
 
 from __future__ import annotations
 
+import functools
 import sys
-from typing import TYPE_CHECKING, Any
+from types import ModuleType
+from typing import TYPE_CHECKING
 
 from futurist import _utils
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     import threading as stdlib_threading
 
+    from eventlet import greenpool
+    from eventlet import greenthread
     from eventlet import queue as greenqueue
 
-# eventlet is imported when a green helper is first used, not when this
-# module is imported, so that processes which never use one do not pay for
-# it. Pool, Queue and spawn are looked up by __getattr__ below on first use.
-Pool: Any
-Queue: Any
-spawn: Any
+
+def _require_eventlet(what: str) -> None:
+    """Refuse to go further when eventlet is not installed.
+
+    The accessors below are only reached from the green executors and
+    futures, which already refuse to be constructed without eventlet, so
+    this is a backstop. It reports the cause rather than letting an
+    ImportError escape from somewhere deeper.
+    """
+    if not _utils.EVENTLET_AVAILABLE:
+        raise RuntimeError(f'Eventlet is needed to use {what}')
 
 
-def __getattr__(name: str) -> Any:
-    global Pool, Queue, spawn
+@functools.cache
+def get_pool_class() -> type[greenpool.GreenPool]:
+    """eventlet's green pool class."""
+    _require_eventlet('a green executor')
+    from eventlet import greenpool
 
-    if name not in ('Pool', 'Queue', 'spawn'):
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    if _utils.EVENTLET_AVAILABLE:
-        from eventlet import greenpool
-        from eventlet import greenthread
-        from eventlet import queue
+    return greenpool.GreenPool  # type: ignore[no-any-return]
 
-        # Aliases that we use and only expose vs the whole of eventlet...
-        Pool = greenpool.GreenPool
-        Queue = queue.Queue
-        spawn = greenthread.spawn
-    else:
-        Pool = Queue = spawn = None
-    return globals()[name]
+
+@functools.cache
+def get_queue_class() -> type[greenqueue.Queue[_utils.WorkItem]]:
+    """eventlet's green queue class, as we use it: a queue of work items."""
+    _require_eventlet('a green executor')
+    from eventlet import queue
+
+    return queue.Queue  # type: ignore[no-any-return]
+
+
+@functools.cache
+def get_spawn() -> Callable[..., greenthread.GreenThread]:
+    """eventlet's greenthread spawn function."""
+    _require_eventlet('a green thread')
+    from eventlet import greenthread
+
+    return greenthread.spawn  # type: ignore[no-any-return]
+
+
+@functools.cache
+def _green_threading() -> ModuleType:
+    """eventlet's green threading module."""
+    _require_eventlet('green threading primitives')
+    from eventlet.green import threading as greenthreading
+
+    return greenthreading  # type: ignore[no-any-return]
 
 
 def is_monkey_patched(mod: str) -> bool:
@@ -63,35 +90,27 @@ def is_monkey_patched(mod: str) -> bool:
 class GreenThreading:
     @staticmethod
     def event_object() -> stdlib_threading.Event:
-        from eventlet.green import threading as greenthreading
-
-        return greenthreading.Event()  # type: ignore
+        return _green_threading().Event()  # type: ignore
 
     @staticmethod
     def lock_object() -> stdlib_threading.Lock:
-        from eventlet.green import threading as greenthreading
-
-        return greenthreading.Lock()  # type: ignore
+        return _green_threading().Lock()  # type: ignore
 
     @staticmethod
     def rlock_object() -> stdlib_threading.RLock:
-        from eventlet.green import threading as greenthreading
-
-        return greenthreading.RLock()  # type: ignore
+        return _green_threading().RLock()  # type: ignore
 
     @staticmethod
     def condition_object(
         lock: stdlib_threading.Lock | stdlib_threading.RLock | None = None,
     ) -> stdlib_threading.Condition:
-        from eventlet.green import threading as greenthreading
-
-        return greenthreading.Condition(lock=lock)  # type: ignore
+        return _green_threading().Condition(lock=lock)  # type: ignore
 
 
-# Creating this imports nothing; its methods import eventlet when called.
-threading: GreenThreading | None = (
-    GreenThreading() if _utils.EVENTLET_AVAILABLE else None
-)
+# Constructing this imports nothing; its methods import eventlet when they
+# are called, and raise if it is missing. It is not optional, so callers do
+# not have to narrow it before every use.
+threading: GreenThreading = GreenThreading()
 
 
 class GreenWorker:
